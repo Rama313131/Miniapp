@@ -1,0 +1,2463 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mapa OSINT</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root {
+  --bg: #0f1419; --panel: #161d24; --panel2: #1d2630; --line: #2b3742;
+  --text: #e3e9ef; --muted: #8b9aa8; --accent: #38bdf8; --accent2: #0ea5e9;
+  --mark: #fde047; --danger: #f87171; --ok: #4ade80;
+  --shadow: 0 6px 24px rgba(0,0,0,.45);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+:root[data-theme="light"] {
+  --bg: #eef2f6; --panel: #ffffff; --panel2: #f3f6f9; --line: #d5dde5;
+  --text: #17212b; --muted: #5b6b7a; --accent: #0369a1; --accent2: #0284c7;
+  --mark: #ca8a04; --danger: #dc2626; --ok: #16a34a;
+  --shadow: 0 6px 24px rgba(0,0,0,.15);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.4 var(--font); overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+#app { display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: 340px 1fr; height: 100dvh; }
+#topbar { grid-column: 1 / 3; display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; z-index: 1001; }
+.brand { font-weight: 600; letter-spacing: .5px; white-space: nowrap; color: var(--accent); }
+.brand b { color: var(--text); }
+#searchWrap { position: relative; flex: 1 1 260px; min-width: 180px; max-width: 520px; }
+#search { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel2); }
+#search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#searchResults { position: absolute; top: 100%; left: 0; right: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; margin-top: 4px; box-shadow: var(--shadow); max-height: 60vh; overflow: auto; display: none; z-index: 2000; }
+#searchResults .sr { padding: 8px 10px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+#searchResults .sr:hover { background: var(--panel2); }
+#searchResults .sr .t { flex: 1; cursor: pointer; }
+#searchResults .sr small { color: var(--muted); display: block; }
+.tools { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.tools .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+.btn { border: 1px solid var(--line); background: var(--panel2); padding: 6px 9px; border-radius: 6px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.btn.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+.btn.sm { padding: 3px 7px; font-size: 12px; }
+.icon-btn { border: 1px solid var(--line); background: var(--panel2); border-radius: 6px; width: 32px; height: 32px; display: none; }
+#sidebar { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; z-index: 1000; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; background: none; border: none; padding: 9px 4px; color: var(--muted); border-bottom: 2px solid transparent; font-size: 13px; }
+.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+.tabs .badge { background: var(--panel2); border-radius: 9px; padding: 0 6px; font-size: 11px; margin-left: 3px; }
+.panel { display: none; flex: 1; overflow: auto; padding: 10px; min-height: 0; }
+.panel.active { display: block; }
+.panel h3 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 600; }
+.panel h3:first-child { margin-top: 0; }
+.hint { color: var(--muted); font-size: 12px; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.list { display: flex; flex-direction: column; gap: 2px; }
+.item { display: flex; align-items: center; gap: 8px; padding: 6px 6px; border-radius: 6px; border: 1px solid transparent; }
+.item:hover { background: var(--panel2); }
+.item.active { border-color: var(--accent); background: var(--panel2); }
+.item .grow { flex: 1; min-width: 0; cursor: pointer; }
+.item .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 11px; height: 11px; border-radius: 50%; flex: none; border: 1px solid rgba(0,0,0,.4); }
+.dot.line { border-radius: 2px; height: 4px; width: 14px; }
+.cat { display: flex; align-items: center; gap: 8px; padding: 4px 4px; border-radius: 5px; cursor: pointer; }
+.cat:hover { background: var(--panel2); }
+.cat .cnt { margin-left: auto; color: var(--muted); font-size: 12px; font-family: var(--mono); }
+input[type=checkbox] { accent-color: var(--accent2); width: 15px; height: 15px; }
+.field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+.field label { font-size: 12px; color: var(--muted); }
+.field input, .field select, .filter, dialog input, dialog select { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel2); }
+.filter { width: 100%; margin-bottom: 6px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 8px; }
+.chk { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 13px; }
+#map { position: relative; min-height: 0; background: #0b0f13; }
+#map.drawing { cursor: crosshair; }
+.leaflet-pane > svg path.region-shape { pointer-events: visibleStroke; }
+#map.drawing .leaflet-interactive { cursor: crosshair; }
+#statusbar { grid-column: 1 / 3; display: flex; gap: 16px; padding: 4px 10px; background: var(--panel); border-top: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; }
+#statusbar #stCursor { color: var(--text); cursor: pointer; }
+#statusbar #stMsg { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+#drawHint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 7px 10px; box-shadow: var(--shadow); display: flex; gap: 8px; align-items: center; max-width: calc(100% - 24px); flex-wrap: wrap; }
+#drawHint[hidden], #loading[hidden] { display: none; }
+#loading { position: absolute; inset: 0; z-index: 1500; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+#loading .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 22px; box-shadow: var(--shadow); display: flex; gap: 12px; align-items: center; max-width: 90%; }
+.spinner { width: 22px; height: 22px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#toast { position: fixed; bottom: 36px; left: 50%; transform: translateX(-50%); z-index: 5000; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+#toast div { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 8px 14px; border-radius: 6px; box-shadow: var(--shadow); max-width: 90vw; }
+#toast div.err { border-left-color: var(--danger); }
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 0; width: min(640px, calc(100vw - 24px)); max-height: calc(100dvh - 40px); }
+dialog::backdrop { background: rgba(0,0,0,.5); }
+dialog header { padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600; display: flex; align-items: center; }
+dialog header button { margin-left: auto; background: none; border: none; font-size: 18px; color: var(--muted); }
+dialog .body { padding: 14px 16px; overflow: auto; max-height: calc(100dvh - 170px); }
+dialog footer { padding: 10px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; }
+dialog fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; padding: 8px 12px 4px; }
+dialog legend { color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; padding: 0 4px; }
+.fmt-opts label { display: flex; gap: 8px; align-items: flex-start; padding: 6px; border-radius: 6px; cursor: pointer; }
+.fmt-opts label:hover { background: var(--panel2); }
+.fmt-opts small { display: block; color: var(--muted); }
+/* Leaflet theming */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+.leaflet-popup-content { margin: 10px 12px; min-width: 240px; max-width: 320px; }
+.leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+.leaflet-control-layers, .leaflet-bar a { background: var(--panel); color: var(--text); border-color: var(--line) !important; }
+.leaflet-control-layers-expanded { color: var(--text); }
+.leaflet-control-scale-line { background: rgba(22,29,36,.8); color: #e3e9ef; border-color: #e3e9ef; }
+.leaflet-tooltip { background: var(--panel); color: var(--text); border-color: var(--line); }
+.pop h4 { margin: 0 0 2px; font-size: 15px; }
+.pop .meta { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.pop .coords { font: 12px var(--mono); background: var(--panel2); border-radius: 5px; padding: 5px 7px; margin: 6px 0; user-select: all; }
+.pop table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0; }
+.pop td { border-top: 1px solid var(--line); padding: 2px 4px; vertical-align: top; word-break: break-word; }
+.pop td:first-child { color: var(--muted); white-space: nowrap; }
+.pop .tags { max-height: 160px; overflow: auto; }
+.pop .acts { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+.pop .links a { color: var(--accent); margin-right: 8px; font-size: 12px; }
+.grid-label { color: #fff; font: 11px var(--mono); text-shadow: 0 0 3px #000, 0 0 3px #000; white-space: nowrap; }
+.ctr-icon { color: #f43f5e; font-size: 26px; line-height: 26px; text-align: center; text-shadow: 0 0 3px #000; }
+.measure-label { background: var(--panel); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px; font: 11px var(--mono); color: var(--text); white-space: nowrap; }
+.pin { width: 28px; height: 28px; border-radius: 50% 50% 50% 0; background: var(--c); transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; }
+.pin i { transform: rotate(45deg); color: #fff; font-size: 13px; }
+.pin.marked { border-color: #fde047; box-shadow: 0 0 0 3px rgba(253,224,71,.55), 0 1px 4px rgba(0,0,0,.6); }
+.pin-wrap { position: relative; }
+.pin-wrap .chk-badge { position: absolute; top: -6px; right: -6px; background: #fde047; color: #111; border-radius: 50%; width: 14px; height: 14px; font-size: 9px; display: flex; align-items: center; justify-content: center; border: 1px solid #111; }
+.ico { width: 20px; height: 20px; border-radius: 50%; background: var(--c); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; flex: none; border: 1px solid rgba(255,255,255,.6); }
+.ico.line { border-radius: 4px; }
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; max-height: 300px; overflow: auto; margin: 8px 0; }
+.icon-grid button { height: 40px; border: 1px solid var(--line); background: var(--panel2); border-radius: 6px; font-size: 16px; }
+.icon-grid button:hover { border-color: var(--accent); }
+.icon-grid button.sel { background: var(--accent2); color: #fff; border-color: var(--accent2); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.warn.active { background: var(--danger); border-color: var(--danger); }
+.cat-row { display: flex; align-items: center; gap: 4px; }
+.cat-row .cat { flex: 1; min-width: 0; }
+.xs { padding: 1px 6px !important; font-size: 11px !important; }
+.types { margin: 2px 0 8px 30px; padding: 6px 8px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.types label { display: flex; gap: 6px; align-items: center; font-size: 12.5px; cursor: pointer; }
+.types label small { color: var(--muted); font-family: var(--mono); font-size: 10.5px; margin-left: auto; }
+.conf { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 0 6px; border-radius: 9px; line-height: 16px; color: #fff; vertical-align: middle; white-space: nowrap; }
+.c-alta { background: #16a34a; } .c-media { background: #d97706; } .c-baja { background: #dc2626; } .c-ver { background: #2563eb; } .c-closed { background: #57534e; }
+.qlist { list-style: none; margin: 4px 0 2px; padding: 0; font-size: 12px; }
+.qlist li { padding: 1px 0; }
+.qlist .ok::before { content: '✔ '; color: #16a34a; } .qlist .warn::before { content: '⚠ '; color: #d97706; } .qlist .bad::before { content: '✖ '; color: #dc2626; }
+.pin-wrap.lowq { opacity: .55; }
+.pin-wrap.closedq { filter: grayscale(1); opacity: .6; }
+textarea.code { width: 100%; min-height: 120px; font: 12px var(--mono); padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); }
+pre.ql { font: 11px var(--mono); background: var(--panel2); padding: 8px; border-radius: 6px; white-space: pre-wrap; max-height: 160px; overflow: auto; margin: 6px 0 0; }
+.pop iframe { width: 100%; height: 220px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.empty { color: var(--muted); padding: 14px 4px; text-align: center; font-size: 13px; }
+@media (max-width: 860px) {
+  #app { grid-template-columns: 1fr; }
+  #topbar, #statusbar { grid-column: 1; }
+  .icon-btn { display: inline-block; }
+  #sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: min(360px, 88vw); transform: translateX(-100%); transition: transform .2s; box-shadow: var(--shadow); z-index: 3000; }
+  #sidebar.open { transform: none; }
+  .tools .lbl { display: none; }
+  #statusbar #stMsg, #statusbar #stDatum { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <button class="icon-btn" data-act="toggle-sidebar" title="Panel">☰</button>
+    <div class="brand">◎ <b>OSINT</b>Map</div>
+    <div id="searchWrap">
+      <input id="search" type="search" autocomplete="off" placeholder="Buscar lugar o coordenadas (DD, DMS, UTM, MGRS)…">
+      <div id="searchResults"></div>
+    </div>
+    <div class="tools">
+      <button class="btn" data-act="tool" data-tool="region-rect" title="Seleccionar región rectangular">▭<span class="lbl">Región</span></button>
+      <button class="btn" data-act="tool" data-tool="region-poly" title="Seleccionar región poligonal">⬠<span class="lbl">Polígono</span></button>
+      <button class="btn" data-act="tool" data-tool="region-circle" title="Seleccionar región circular">◯<span class="lbl">Radio</span></button>
+      <button class="btn" data-act="region-view" title="Crear región con la vista actual">⛶<span class="lbl">Vista</span></button>
+      <span class="sep"></span>
+      <button class="btn" data-act="tool" data-tool="mark-area" title="Marcar todos los elementos dentro de un área">☑<span class="lbl">Marcar área</span></button>
+      <button class="btn" data-act="tool" data-tool="unmark-area" title="Desmarcar todos los elementos dentro de un área">☐<span class="lbl">Desmarcar</span></button>
+      <button class="btn warn" data-act="tool" data-tool="discard" title="Modo descartar: cada elemento que pulses se quita del mapa">🗑<span class="lbl">Descartar</span></button>
+      <button class="btn" data-act="tool" data-tool="point" title="Añadir marcador propio">📍<span class="lbl">Punto</span></button>
+      <button class="btn" data-act="tool" data-tool="measure" title="Medir distancia / área">📏<span class="lbl">Medir</span></button>
+      <button class="btn" data-act="locate" title="Mi ubicación">⌖</button>
+      <span class="sep"></span>
+      <button class="btn" data-act="undo" id="btnUndo" title="Deshacer (Ctrl+Z)" disabled>↶<span class="lbl">Deshacer</span></button>
+      <button class="btn" data-act="redo" id="btnRedo" title="Rehacer (Ctrl+Y)" disabled>↷<span class="lbl">Rehacer</span></button>
+      <span class="sep"></span>
+      <button class="btn" data-act="import" title="Importar GeoJSON, KML/KMZ, GPX, CSV, CoT, Data Package">⤒<span class="lbl">Importar</span></button>
+      <button class="btn primary" data-act="export" title="Exportar elementos marcados">⤓<span class="lbl">Exportar</span></button>
+      <button class="btn" data-act="settings" title="Configuración">⚙</button>
+    </div>
+  </header>
+
+  <aside id="sidebar">
+    <div class="tabs">
+      <button data-tab="regions" class="active">Regiones</button>
+      <button data-tab="layers">Capas</button>
+      <button data-tab="results">Elementos<span class="badge" id="bdResults">0</span></button>
+      <button data-tab="marked">Marcados<span class="badge" id="bdMarked">0</span></button>
+    </div>
+
+    <section class="panel active" id="pnl-regions">
+      <h3>Regiones de trabajo</h3>
+      <p class="hint">Explora el mapa y selecciona una zona con ▭ / ⬠ / ◯ o con «Vista». Después carga sus elementos desde fuentes abiertas.</p>
+      <div class="list" id="regionList"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn sm" data-act="load-active">⟳ Cargar elementos de la región activa</button>
+      </div>
+    </section>
+
+    <section class="panel" id="pnl-layers">
+      <h3>Categorías a consultar (OpenStreetMap)</h3>
+      <div class="row" style="margin-bottom:6px">
+        <button class="btn sm" data-act="cats-all">Todas</button>
+        <button class="btn sm" data-act="cats-none">Ninguna</button>
+        <button class="btn sm" data-act="cats-default">Por defecto</button>
+      </div>
+      <div id="catList"></div>
+      <div class="row" id="discardInfo" style="margin:6px 0"></div>
+      <h3>Otras fuentes abiertas</h3>
+      <div id="srcList"></div>
+      <p class="hint">Las categorías marcadas se consultan al cargar una región y se muestran en el mapa. Desmarcar una categoría la oculta sin volver a descargar; al volver a activarla se recuperan también sus elementos descartados. Si activas una categoría nueva en una región ya cargada, se descarga y se añade automáticamente sin perder nada.</p>
+      <h3>Mis categorías personalizadas</h3>
+      <div id="customCatList"></div>
+      <button class="btn sm" data-act="ccat-new">＋ Nueva categoría (cualquier etiqueta OSM)</button>
+      <h3>Precisión y fiabilidad</h3>
+      <label class="chk"><input type="checkbox" id="optHideClosed"> Ocultar posibles cerrados / abandonados</label>
+      <div class="field"><label>Mostrar en el mapa y en la lista</label>
+        <select id="optMinConf">
+          <option value="0">Todos los elementos</option>
+          <option value="45">Solo confianza media o alta</option>
+          <option value="70">Solo confianza alta</option>
+          <option value="ver">Solo los que he confirmado yo</option>
+        </select></div>
+      <p class="hint">Cada elemento de OSM recibe una puntuación de 0 a 100 según sus etiquetas (nombre coherente con el tipo, horario, teléfono, web, fecha de revisión…). Pulsa un elemento para ver el porqué y confírmalo tú tras revisarlo en Street View.</p>
+      <h3>Visualización</h3>
+      <label class="chk"><input type="checkbox" id="optShowMarkedOnly"> Mostrar solo elementos marcados</label>
+      <label class="chk"><input type="checkbox" id="optShowRegions" checked> Mostrar contornos de regiones</label>
+    </section>
+
+    <section class="panel" id="pnl-results">
+      <div class="row" style="margin-bottom:6px">
+        <input class="filter" id="resFilter" placeholder="Filtrar por nombre o etiqueta…" style="flex:1;margin:0">
+        <select id="resCat" class="filter" style="width:auto;margin:0"></select>
+        <select id="resSort" class="filter" style="width:auto;margin:0" title="Orden"><option value="">Orden: nombre</option><option value="conf">Orden: confianza</option><option value="type">Orden: tipo</option></select>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn sm" data-act="mark-filtered">☑ Marcar filtrados</button>
+        <button class="btn sm" data-act="unmark-filtered">☐ Desmarcar filtrados</button>
+        <span class="hint" id="resInfo"></span>
+      </div>
+      <div class="list" id="resList"></div>
+    </section>
+
+    <section class="panel" id="pnl-marked">
+      <div class="row" style="margin-bottom:8px">
+        <input class="filter" id="mkFilter" placeholder="Filtrar marcados…" style="flex:1;margin:0">
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn sm primary" data-act="export">⤓ Exportar</button>
+        <button class="btn sm" data-act="zoom-marked">⤢ Ver todos</button>
+        <button class="btn sm danger" data-act="clear-marked">Desmarcar todo</button>
+      </div>
+      <div class="list" id="mkList"></div>
+    </section>
+  </aside>
+
+  <main id="map">
+    <div id="drawHint" hidden><span id="drawText"></span><button class="btn sm primary" data-act="draw-finish" id="drawFinish">Terminar</button><button class="btn sm" data-act="draw-cancel">Cancelar (Esc)</button></div>
+    <div id="loading" hidden><div class="box"><div class="spinner"></div><div><div id="loadingText">Cargando…</div><small class="hint" id="loadingSub"></small></div><button class="btn sm" data-act="abort-load">Cancelar</button></div></div>
+  </main>
+
+  <footer id="statusbar">
+    <span id="stCursor" title="Clic para copiar">—</span>
+    <span id="stZoom">z —</span>
+    <span id="stDatum">WGS84</span>
+    <span id="stMsg">Fuentes: © OpenStreetMap contributors · Overpass API · Nominatim · Wikipedia</span>
+  </footer>
+</div>
+
+<input type="file" id="fileImport" multiple hidden accept=".geojson,.json,.kml,.kmz,.gpx,.csv,.cot,.xml,.zip">
+<div id="toast"></div>
+
+<dialog id="dlgSettings">
+  <header>⚙ Configuración<button data-act="close-dialog">✕</button></header>
+  <div class="body">
+    <fieldset><legend>Coordenadas</legend>
+      <div class="grid2">
+        <div class="field"><label>Formato de coordenadas</label>
+          <select id="setCoordFormat">
+            <option value="dd">Grados decimales (DD)</option>
+            <option value="dms">Grados, minutos, segundos (DMS)</option>
+            <option value="ddm">Grados, minutos decimales (DDM)</option>
+            <option value="utm">UTM</option>
+            <option value="mgrs">MGRS / USNG</option>
+          </select></div>
+        <div class="field"><label>Datum / elipsoide</label>
+          <select id="setDatum"><option value="WGS84">WGS84 (EPSG:4326)</option></select></div>
+        <div class="field"><label>Decimales (DD)</label><input type="number" id="setDDPrec" min="2" max="9"></div>
+        <div class="field"><label>Precisión MGRS</label>
+          <select id="setMgrsPrec"><option value="5">1 m (10 dígitos)</option><option value="4">10 m (8 dígitos)</option><option value="3">100 m (6 dígitos)</option><option value="2">1 km (4 dígitos)</option><option value="1">10 km (2 dígitos)</option></select></div>
+      </div>
+    </fieldset>
+    <fieldset><legend>Unidades y retícula</legend>
+      <div class="grid2">
+        <div class="field"><label>Unidades de medida</label>
+          <select id="setUnits"><option value="metric">Métricas (m, km)</option><option value="imperial">Imperiales (ft, mi)</option><option value="nautical">Náuticas (NM)</option></select></div>
+        <div class="field"><label>Retícula / cuadrícula</label>
+          <select id="setGrid"><option value="none">Ninguna</option><option value="latlon">Latitud / longitud</option><option value="utm">UTM / MGRS</option></select></div>
+      </div>
+      <div class="field"><label>Mostrar iconos a partir del zoom (por debajo se dibujan puntos, más rápido)</label><input type="number" id="setIconZoom" min="2" max="20"></div>
+      <label class="chk"><input type="checkbox" id="setScale"> Mostrar barra de escala</label>
+      <label class="chk"><input type="checkbox" id="setCursor"> Mostrar coordenadas del cursor</label>
+    </fieldset>
+    <fieldset><legend>Navegación</legend>
+      <label class="chk"><input type="checkbox" id="setFly"> Animación de vuelo al ir a un lugar</label>
+      <label class="chk"><input type="checkbox" id="setInertia"> Inercia al arrastrar</label>
+      <label class="chk"><input type="checkbox" id="setWheel"> Zoom con la rueda del ratón</label>
+      <div class="field"><label>Sensibilidad de la rueda (px por nivel; menor = más rápido)</label><input type="number" id="setWheelPx" min="20" max="300" step="10"></div>
+      <div class="grid3">
+        <div class="field"><label>Inicio: latitud</label><input type="number" step="any" id="setHomeLat"></div>
+        <div class="field"><label>Inicio: longitud</label><input type="number" step="any" id="setHomeLon"></div>
+        <div class="field"><label>Inicio: zoom</label><input type="number" min="1" max="19" id="setHomeZoom"></div>
+      </div>
+      <button class="btn sm" data-act="home-from-view">Usar la vista actual como inicio</button>
+    </fieldset>
+    <fieldset><legend>Apariencia</legend>
+      <div class="field"><label>Tema</label><select id="setTheme"><option value="auto">Automático (sistema)</option><option value="dark">Oscuro</option><option value="light">Claro</option></select></div>
+    </fieldset>
+    <fieldset><legend>Fuentes de datos</legend>
+      <div class="field"><label>Servidor Overpass API</label>
+        <select id="setOverpass">
+          <option value="https://overpass-api.de/api/interpreter">overpass-api.de (principal)</option>
+          <option value="https://overpass.kumi.systems/api/interpreter">overpass.kumi.systems</option>
+          <option value="https://maps.mail.ru/osm/tools/overpass/api/interpreter">maps.mail.ru</option>
+          <option value="https://overpass.private.coffee/api/interpreter">overpass.private.coffee</option>
+        </select></div>
+      <div class="grid3">
+        <div class="field"><label>Máx. por categoría</label><input type="number" id="setMax" min="100" max="50000" step="100"></div>
+        <div class="field"><label>Timeout (s)</label><input type="number" id="setTimeout" min="10" max="300"></div>
+        <div class="field"><label>Aviso área (km²)</label><input type="number" id="setMaxArea" min="1"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Idioma Wikipedia</label><input id="setWikiLang" maxlength="10"></div>
+        <div class="field"><label>&nbsp;</label><label class="chk"><input type="checkbox" id="setAutoLoad"> Cargar al crear región</label></div>
+      </div>
+    </fieldset>
+    <fieldset><legend>Exportación ATAK / CoT</legend>
+      <div class="grid2">
+        <div class="field"><label>Tipo CoT para puntos</label>
+          <select id="setCotType">
+            <option value="b-m-p-s-m">Marcador spot (b-m-p-s-m)</option>
+            <option value="b-m-p-w-GOTO">Waypoint (b-m-p-w-GOTO)</option>
+            <option value="a-u-G">Desconocido tierra (a-u-G)</option>
+            <option value="a-n-G">Neutral tierra (a-n-G)</option>
+          </select></div>
+        <div class="field"><label>Caducidad (días)</label><input type="number" id="setStale" min="1" max="3650"></div>
+      </div>
+    </fieldset>
+  </div>
+  <footer>
+    <button class="btn danger" data-act="reset-settings">Restablecer</button>
+    <button class="btn" data-act="close-dialog">Cancelar</button>
+    <button class="btn primary" data-act="save-settings">Guardar</button>
+  </footer>
+</dialog>
+
+<dialog id="dlgCat">
+  <header>＋ Categoría personalizada<button data-act="close-dialog">✕</button></header>
+  <div class="body">
+    <div class="grid2">
+      <div class="field"><label>Nombre</label><input id="ccName" placeholder="p. ej. Cajeros de Santander"></div>
+      <div class="field"><label>Geometría</label><select id="ccLine"><option value="0">Puntos / edificios</option><option value="1">Líneas (calles, tendidos…)</option></select></div>
+      <div class="field"><label>Icono</label><select id="ccIcon"></select></div>
+      <div class="field"><label>Color</label><input type="color" id="ccColor" value="#e11d48"></div>
+    </div>
+    <div class="field"><label>Filtro de etiquetas OSM: una línea por alternativa (O); condiciones de una línea unidas con &amp; (Y)</label>
+      <textarea class="code" id="ccFilter" spellcheck="false" placeholder="amenity=atm &amp; operator~santander
+amenity=bank &amp; brand=Banco Santander"></textarea></div>
+    <p class="hint">Sintaxis: <code>clave</code> (existe) · <code>!clave</code> (no existe) · <code>clave=valor</code> · <code>clave=v1|v2</code> · <code>clave!=valor</code> · <code>clave~texto</code> (contiene, sin distinguir mayúsculas) · <code>clave!~texto</code>. También acepta filtros Overpass tal cual: <code>["shop"="bakery"]["name"~"horno",i]</code>. Las etiquetas se consultan en <a href="https://wiki.openstreetmap.org/wiki/ES:Map_Features" target="_blank" rel="noopener">wiki.openstreetmap.org</a>.</p>
+    <button class="btn sm" data-act="ccat-test">Comprobar filtro</button>
+    <pre class="ql" id="ccPreview" hidden></pre>
+  </div>
+  <footer>
+    <button class="btn danger" data-act="ccat-delete" id="ccDelete">Eliminar</button>
+    <button class="btn" data-act="close-dialog">Cancelar</button>
+    <button class="btn primary" data-act="ccat-save">Guardar y cargar</button>
+  </footer>
+</dialog>
+
+<dialog id="dlgIcon">
+  <header>🎨 Cambiar icono<button data-act="close-dialog">✕</button></header>
+  <div class="body">
+    <div class="row"><span class="pin-wrap" id="iconPreview"></span><b id="iconFor" style="margin-left:10px"></b></div>
+    <input class="filter" id="iconSearch" placeholder="Buscar icono (en inglés: car, camera, hospital…)" style="margin-top:12px">
+    <div class="icon-grid" id="iconGrid"></div>
+    <div class="row">
+      <label class="chk" style="margin:0">Color <input type="color" id="iconColor"></label>
+      <label class="chk" style="margin:0 0 0 12px"><input type="checkbox" id="iconAllCat"> Aplicar a toda la categoría <span id="iconCatName"></span></label>
+    </div>
+  </div>
+  <footer>
+    <button class="btn" data-act="icon-reset">Restablecer</button>
+    <button class="btn" data-act="close-dialog">Cancelar</button>
+    <button class="btn primary" data-act="icon-apply">Aplicar</button>
+  </footer>
+</dialog>
+
+<dialog id="dlgExport">
+  <header>⤓ Exportar elementos<button data-act="close-dialog">✕</button></header>
+  <div class="body">
+    <fieldset><legend>Formato</legend>
+      <div class="fmt-opts">
+        <label><input type="radio" name="fmt" value="atak" checked><span><b>ATAK Data Package (.zip)</b><small>Paquete de misión con un evento CoT por elemento. Importar en ATAK/WinTAK/iTAK: Import Manager → Local SD.</small></span></label>
+        <label><input type="radio" name="fmt" value="kmz"><span><b>KMZ</b><small>Google Earth, ATAK, QGIS. Estilos y carpetas por categoría.</small></span></label>
+        <label><input type="radio" name="fmt" value="kml"><span><b>KML</b><small>Texto plano. Compatible con casi cualquier SIG.</small></span></label>
+        <label><input type="radio" name="fmt" value="geojson"><span><b>GeoJSON</b><small>Con todas las etiquetas OSM como propiedades.</small></span></label>
+        <label><input type="radio" name="fmt" value="gpx"><span><b>GPX</b><small>Waypoints y tracks para GPS y apps de navegación.</small></span></label>
+        <label><input type="radio" name="fmt" value="csv"><span><b>CSV</b><small>Tabla con nombre, categoría, latitud, longitud y MGRS.</small></span></label>
+      </div>
+    </fieldset>
+    <fieldset><legend>Contenido</legend>
+      <label class="chk"><input type="radio" name="scope" value="marked" checked> Elementos marcados (<span id="expCntMarked">0</span>)</label>
+      <label class="chk"><input type="radio" name="scope" value="visible"> Todos los elementos visibles de la región activa (<span id="expCntVisible">0</span>)</label>
+      <label class="chk"><input type="checkbox" id="expRegions" checked> Incluir contornos de regiones</label>
+      <label class="chk"><input type="checkbox" id="expTags" checked> Incluir etiquetas / descripción</label>
+      <div class="field"><label>Nombre del archivo</label><input id="expName" value="osint-export"></div>
+    </fieldset>
+  </div>
+  <footer>
+    <button class="btn" data-act="close-dialog">Cancelar</button>
+    <button class="btn primary" data-act="do-export">Exportar</button>
+  </footer>
+</dialog>
+
+<script>
+'use strict';
+/* =========================================================================
+   Utilidades
+   ========================================================================= */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2));
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+
+function toast(msg, err = false, ms = 3500) {
+  const d = document.createElement('div');
+  d.textContent = msg; if (err) d.className = 'err';
+  $('#toast').appendChild(d);
+  setTimeout(() => d.remove(), ms);
+}
+function copyText(t) {
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(
+    () => toast('Copiado: ' + t), () => { prompt('Copiar:', t); });
+}
+function download(name, data, mime) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+/* =========================================================================
+   Geodesia: UTM, MGRS, formatos y análisis de coordenadas (WGS84)
+   ========================================================================= */
+const UTM = (() => {
+  const a = 6378137, ecc = 0.00669438, k0 = 0.9996, ep = ecc / (1 - ecc);
+  const letter = lat => (lat > 84 || lat < -80) ? 'Z' : 'CDEFGHJKLMNPQRSTUVWXX'[Math.floor((lat + 80) / 8)];
+  function zoneOf(lat, lon) {
+    let z = Math.floor((lon + 180) / 6) + 1;
+    if (lon >= 180) z = 60;
+    if (lat >= 56 && lat < 64 && lon >= 3 && lon < 12) z = 32;
+    if (lat >= 72 && lat < 84) {
+      if (lon >= 0 && lon < 9) z = 31; else if (lon >= 9 && lon < 21) z = 33;
+      else if (lon >= 21 && lon < 33) z = 35; else if (lon >= 33 && lon < 42) z = 37;
+    }
+    return z;
+  }
+  function fromLL(lat, lon, forceZone) {
+    lon = ((lon + 180) % 360 + 360) % 360 - 180;
+    const zone = forceZone || zoneOf(lat, lon);
+    const lon0 = ((zone - 1) * 6 - 180 + 3) * D2R, phi = lat * D2R, lam = lon * D2R;
+    const N = a / Math.sqrt(1 - ecc * Math.sin(phi) ** 2), T = Math.tan(phi) ** 2, C = ep * Math.cos(phi) ** 2, A = Math.cos(phi) * (lam - lon0);
+    const M = a * ((1 - ecc / 4 - 3 * ecc ** 2 / 64 - 5 * ecc ** 3 / 256) * phi - (3 * ecc / 8 + 3 * ecc ** 2 / 32 + 45 * ecc ** 3 / 1024) * Math.sin(2 * phi)
+      + (15 * ecc ** 2 / 256 + 45 * ecc ** 3 / 1024) * Math.sin(4 * phi) - (35 * ecc ** 3 / 3072) * Math.sin(6 * phi));
+    const E = k0 * N * (A + (1 - T + C) * A ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep) * A ** 5 / 120) + 500000;
+    let Nn = k0 * (M + N * Math.tan(phi) * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * ep) * A ** 6 / 720));
+    if (lat < 0) Nn += 10000000;
+    return { zone, letter: letter(lat), easting: E, northing: Nn, south: lat < 0 };
+  }
+  function toLL(zone, easting, northing, south) {
+    const e1 = (1 - Math.sqrt(1 - ecc)) / (1 + Math.sqrt(1 - ecc));
+    const x = easting - 500000, y = south ? northing - 10000000 : northing;
+    const lon0 = (zone - 1) * 6 - 180 + 3;
+    const mu = (y / k0) / (a * (1 - ecc / 4 - 3 * ecc ** 2 / 64 - 5 * ecc ** 3 / 256));
+    const p1 = mu + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu) + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu) + (151 * e1 ** 3 / 96) * Math.sin(6 * mu);
+    const N1 = a / Math.sqrt(1 - ecc * Math.sin(p1) ** 2), T1 = Math.tan(p1) ** 2, C1 = ep * Math.cos(p1) ** 2;
+    const R1 = a * (1 - ecc) / Math.pow(1 - ecc * Math.sin(p1) ** 2, 1.5), D = x / (N1 * k0);
+    const lat = p1 - (N1 * Math.tan(p1) / R1) * (D * D / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep) * D ** 4 / 24
+      + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep - 3 * C1 * C1) * D ** 6 / 720);
+    const lon = (D - (1 + 2 * T1 + C1) * D ** 3 / 6 + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep + 24 * T1 * T1) * D ** 5 / 120) / Math.cos(p1);
+    return { lat: lat * R2D, lon: lon0 + lon * R2D };
+  }
+  return { fromLL, toLL, letter, zoneOf };
+})();
+
+const MGRS = (() => {
+  const SETC = 'AJSAJS', SETR = 'AFAFAF', A = 65, I = 73, O = 79, V = 86, Z = 90;
+  const setFor = z => (z % 6) || 6;
+  function letters100k(col, row, parm) {
+    const colO = SETC.charCodeAt(parm - 1), rowO = SETR.charCodeAt(parm - 1);
+    let c = colO + col - 1, r = rowO + row, roll = false;
+    if (c > Z) { c = c - Z + A - 1; roll = true; }
+    if (c === I || (colO < I && c > I) || ((c > I || colO < I) && roll)) c++;
+    if (c === O || (colO < O && c > O) || ((c > O || colO < O) && roll)) { c++; if (c === I) c++; }
+    if (c > Z) c = c - Z + A - 1;
+    if (r > V) { r = r - V + A - 1; roll = true; } else roll = false;
+    if (r === I || (rowO < I && r > I) || ((r > I || rowO < I) && roll)) r++;
+    if (r === O || (rowO < O && r > O) || ((r > O || rowO < O) && roll)) { r++; if (r === I) r++; }
+    if (r > V) r = r - V + A - 1;
+    return String.fromCharCode(c) + String.fromCharCode(r);
+  }
+  function forward(lat, lon, acc = 5) {
+    if (lat > 84 || lat < -80) return null;
+    const u = UTM.fromLL(lat, lon);
+    const id = letters100k(Math.floor(u.easting / 1e5), Math.floor(u.northing / 1e5) % 20, setFor(u.zone));
+    const e = ('00000' + Math.floor(u.easting)).slice(-5).slice(0, acc);
+    const n = ('00000' + Math.floor(u.northing)).slice(-5).slice(0, acc);
+    return { zone: u.zone, letter: u.letter, id, e, n };
+  }
+  function eastFrom(ch, set) {
+    let cur = SETC.charCodeAt(set - 1), v = 1e5, rew = false;
+    while (cur !== ch.charCodeAt(0)) {
+      cur++; if (cur === I) cur++; if (cur === O) cur++;
+      if (cur > Z) { if (rew) throw new Error('MGRS inválido'); cur = A; rew = true; }
+      v += 1e5;
+    }
+    return v;
+  }
+  function northFrom(ch, set) {
+    if (ch > 'V') throw new Error('MGRS inválido');
+    let cur = SETR.charCodeAt(set - 1), v = 0, rew = false;
+    while (cur !== ch.charCodeAt(0)) {
+      cur++; if (cur === I) cur++; if (cur === O) cur++;
+      if (cur > V) { if (rew) throw new Error('MGRS inválido'); cur = A; rew = true; }
+      v += 1e5;
+    }
+    return v;
+  }
+  const MINN = { C: 1.1e6, D: 2e6, E: 2.8e6, F: 3.7e6, G: 4.6e6, H: 5.5e6, J: 6.4e6, K: 7.3e6, L: 8.2e6, M: 9.1e6,
+    N: 0, P: 8e5, Q: 1.7e6, R: 2.6e6, S: 3.5e6, T: 4.4e6, U: 5.3e6, V: 6.2e6, W: 7e6, X: 7.9e6 };
+  function inverse(str) {
+    const m = str.toUpperCase().replace(/\s+/g, '').match(/^(\d{1,2})([C-HJ-NP-X])([A-HJ-NP-Z])([A-HJ-NP-V])(\d*)$/);
+    if (!m || m[5].length % 2 || +m[1] < 1 || +m[1] > 60) return null;
+    const zone = +m[1], band = m[2], set = setFor(zone), digits = m[5], h = digits.length / 2;
+    const e100 = eastFrom(m[3], set); let n100 = northFrom(m[4], set);
+    while (n100 < MINN[band]) n100 += 2e6;
+    const mult = h ? 1e5 / 10 ** h : 1e5;
+    const e = h ? +digits.slice(0, h) * mult : 0, n = h ? +digits.slice(h) * mult : 0;
+    return UTM.toLL(zone, e100 + e + mult / 2, n100 + n + mult / 2, band < 'N');
+  }
+  return { forward, inverse };
+})();
+
+const Coord = {
+  dms(v, pos, neg, ddm) {
+    const h = v >= 0 ? pos : neg; v = Math.abs(v);
+    let d = Math.floor(v), m = (v - d) * 60;
+    if (ddm) {
+      let mm = m.toFixed(4); if (+mm >= 60) { d++; mm = (0).toFixed(4); }
+      return `${d}° ${mm.padStart(7, '0')}' ${h}`;
+    }
+    let mi = Math.floor(m), ss = ((m - mi) * 60).toFixed(2);
+    if (+ss >= 60) { ss = '0.00'; mi++; } if (mi >= 60) { mi = 0; d++; }
+    return `${d}° ${String(mi).padStart(2, '0')}' ${ss.padStart(5, '0')}" ${h}`;
+  },
+  format(lat, lon, fmt = S.coordFormat) {
+    lon = ((lon + 180) % 360 + 360) % 360 - 180;
+    switch (fmt) {
+      case 'dms': return `${this.dms(lat, 'N', 'S')}  ${this.dms(lon, 'E', 'W')}`;
+      case 'ddm': return `${this.dms(lat, 'N', 'S', true)}  ${this.dms(lon, 'E', 'W', true)}`;
+      case 'utm': {
+        if (lat > 84 || lat < -80) return 'Fuera de UTM (zona polar)';
+        const u = UTM.fromLL(lat, lon);
+        return `${u.zone}${u.letter} ${Math.round(u.easting)}mE ${Math.round(u.northing)}mN`;
+      }
+      case 'mgrs': {
+        const m = MGRS.forward(lat, lon, +S.mgrsPrec);
+        return m ? `${m.zone}${m.letter} ${m.id} ${m.e} ${m.n}` : 'Fuera de MGRS (zona polar)';
+      }
+      default: return `${lat.toFixed(S.ddPrec)}, ${lon.toFixed(S.ddPrec)}`;
+    }
+  },
+  all(lat, lon) {
+    return [['DD', 'dd'], ['DMS', 'dms'], ['DDM', 'ddm'], ['UTM', 'utm'], ['MGRS', 'mgrs']].map(([l, f]) => [l, this.format(lat, lon, f)]);
+  },
+  mgrs(lat, lon) { const m = MGRS.forward(lat, lon, 5); return m ? `${m.zone}${m.letter}${m.id}${m.e}${m.n}` : ''; },
+  parse(input) {
+    let s = input.trim().toUpperCase().replace(/,/g, ' , ').replace(/\s+/g, ' ').trim();
+    if (!s) return null;
+    // MGRS
+    const compact = s.replace(/[\s,]/g, '');
+    if (/^\d{1,2}[C-HJ-NP-X][A-HJ-NP-Z][A-HJ-NP-V]\d*$/.test(compact)) {
+      try { const ll = MGRS.inverse(compact); if (ll) return ll; } catch (e) { /* sigue */ }
+    }
+    // UTM: 30T 440000 4474000
+    let m = s.match(/^(\d{1,2})\s*([C-HJ-NP-X])\s+(\d+(?:\.\d+)?)\s*(?:ME|M|E)?\s*,?\s*(\d+(?:\.\d+)?)\s*(?:MN|M|N)?$/);
+    if (m && +m[1] >= 1 && +m[1] <= 60) return UTM.toLL(+m[1], +m[3], +m[4], m[2] < 'N');
+    // Decimal: lat, lon
+    m = s.match(/^([-+]?\d+(?:\.\d+)?)\s*[, ]\s*,?\s*([-+]?\d+(?:\.\d+)?)$/);
+    if (m) { const lat = +m[1], lon = +m[2]; if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) return { lat, lon }; }
+    // DMS / DDM con hemisferios (N S E W/O)
+    const t = s.replace(/[°º'′"″]/g, ' ').replace(/\bO\b/g, 'W').replace(/(\d)O\b/g, '$1 W').replace(/,/g, ' ');
+    const letters = t.match(/[NSEW]/g);
+    let parts = null;
+    if (letters && letters.length === 2) {
+      const prefix = /^[NSEW]/.test(t.trim());
+      const chunks = t.split(/([NSEW])/).map(x => x.trim()).filter(x => x !== '');
+      parts = [];
+      for (let i = 0; i < chunks.length; i++) {
+        if (/^[NSEW]$/.test(chunks[i])) {
+          const num = prefix ? chunks[i + 1] : chunks[i - 1];
+          parts.push({ h: chunks[i], nums: (num || '').match(/[-+]?\d+(?:\.\d+)?/g) || [] });
+        }
+      }
+    } else {
+      const nums = t.match(/[-+]?\d+(?:\.\d+)?/g) || [];
+      if (nums.length === 4 || nums.length === 6) {
+        const k = nums.length / 2;
+        parts = [{ h: null, nums: nums.slice(0, k) }, { h: null, nums: nums.slice(k) }];
+      }
+    }
+    if (!parts || parts.length !== 2) return null;
+    const val = p => {
+      const [d, mi = 0, se = 0] = p.nums.map(Number);
+      let v = Math.abs(d) + mi / 60 + se / 3600;
+      if (String(p.nums[0]).startsWith('-') || p.h === 'S' || p.h === 'W') v = -v;
+      return v;
+    };
+    let lat = val(parts[0]), lon = val(parts[1]);
+    if (parts[0].h === 'E' || parts[0].h === 'W') [lat, lon] = [lon, lat];
+    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !isNaN(lat) && !isNaN(lon)) return { lat, lon };
+    return null;
+  }
+};
+
+const Units = {
+  dist(m) {
+    if (S.units === 'imperial') { const ft = m * 3.28084; return ft < 5280 ? `${ft.toFixed(0)} ft` : `${(m / 1609.344).toFixed(2)} mi`; }
+    if (S.units === 'nautical') return m < 1852 ? `${m.toFixed(0)} m (${(m / 1852).toFixed(3)} NM)` : `${(m / 1852).toFixed(2)} NM`;
+    return m < 1000 ? `${m.toFixed(0)} m` : `${(m / 1000).toFixed(2)} km`;
+  },
+  area(m2) {
+    if (S.units === 'imperial') { const ac = m2 / 4046.856; return ac < 640 ? `${ac.toFixed(1)} acres` : `${(m2 / 2589988.11).toFixed(2)} mi²`; }
+    if (S.units === 'nautical') return `${(m2 / 3429904).toFixed(3)} NM²`;
+    return m2 < 1e6 ? `${(m2 / 1e4).toFixed(2)} ha` : `${(m2 / 1e6).toFixed(2)} km²`;
+  }
+};
+function ringArea(coords) { // [[lat,lon],...] → m²
+  const R = 6378137, n = coords.length; if (n < 3) return 0;
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const [la1, lo1] = coords[i], [la2, lo2] = coords[(i + 1) % n];
+    s += (lo2 - lo1) * D2R * (2 + Math.sin(la1 * D2R) + Math.sin(la2 * D2R));
+  }
+  return Math.abs(s * R * R / 2);
+}
+function pointInPoly(lat, lon, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [yi, xi] = poly[i], [yj, xj] = poly[j];
+    if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+/* =========================================================================
+   Categorías y fuentes
+   ========================================================================= */
+// f: lista de alternativas (OR); cada alternativa es una lista de condiciones (AND) [clave, regex?]
+const CATS = [
+  { id: 'food', name: 'Restaurantes, cafés y bares', color: '#f97316', f: [[['amenity', '^(restaurant|cafe|fast_food|bar|pub|biergarten|food_court|ice_cream|nightclub)$']]] },
+  { id: 'shop', name: 'Comercios y tiendas', color: '#eab308', f: [[['shop']]] },
+  { id: 'office', name: 'Empresas, oficinas y talleres', color: '#94a3b8', f: [[['office']], [['craft']]] },
+  { id: 'lodging', name: 'Alojamiento', color: '#8b5cf6', f: [[['tourism', '^(hotel|hostel|guest_house|motel|apartment|camp_site|chalet)$']]] },
+  { id: 'poi', name: 'Puntos de interés y patrimonio', color: '#ec4899', f: [[['tourism', '^(attraction|museum|viewpoint|artwork|gallery|information|zoo|theme_park|aquarium)$']], [['historic']]] },
+  { id: 'camera', name: 'Cámaras (vigilancia, tráfico, webcams)', color: '#ef4444', f: [[['man_made', '^surveillance$']], [['highway', '^speed_camera$']], [['enforcement']], [['contact:webcam']], [['webcam']]] },
+  { id: 'signals', name: 'Semáforos', color: '#22c55e', f: [[['highway', '^traffic_signals$']]] },
+  { id: 'health', name: 'Salud (hospitales, farmacias…)', color: '#f43f5e', f: [[['amenity', '^(hospital|clinic|doctors|dentist|pharmacy|veterinary)$']], [['healthcare']]] },
+  { id: 'military', name: 'Cuarteles y bases militares', color: '#4d7c0f', f: [
+    [['military', '^(base|barracks|airfield|naval_base|training_area|range|office|checkpoint|bunker|danger_area|academy)$']],
+    [['landuse', '^military$']],
+    [['amenity', '^police$'], ['operator', '[Gg][Uu][Aa][Rr][Dd][Ii][Aa] [Cc][Ii][Vv][Ii][Ll]']],
+    [['amenity', '^police$'], ['name', '[Cc][Uu][Aa][Rr][Tt][Ee][Ll]']]],
+    typeLabels: { '2=police': 'Cuartel / puesto de la Guardia Civil', '3=police': 'Cuartel policial (por nombre)' } },
+  { id: 'emergency', name: 'Policía, bomberos y emergencias', color: '#3b82f6', f: [[['amenity', '^(police|fire_station|ranger_station)$']], [['police']], [['office', '^police$']], [['government', '^(police|law_enforcement)$']], [['emergency', '^(ambulance_station|defibrillator|assembly_point|emergency_ward_entrance)$']]] },
+  { id: 'hydrant', name: 'Hidrantes', color: '#dc2626', f: [[['emergency', '^(fire_hydrant|water_tank|suction_point)$']]] },
+  { id: 'gov', name: 'Administración y embajadas', color: '#64748b', f: [[['amenity', '^(townhall|courthouse|embassy|post_office|prison|community_centre)$']], [['office', '^(government|diplomatic)$']], [['diplomatic']]] },
+  { id: 'transport', name: 'Estaciones y transporte', color: '#06b6d4', f: [[['railway', '^(station|halt|tram_stop|subway_entrance)$']], [['amenity', '^(bus_station|ferry_terminal|taxi)$']], [['public_transport', '^station$']]] },
+  { id: 'busstop', name: 'Paradas de autobús', color: '#67e8f9', f: [[['highway', '^bus_stop$']]] },
+  { id: 'fuel', name: 'Gasolineras y puntos de recarga', color: '#a16207', f: [[['amenity', '^(fuel|charging_station)$']]] },
+  { id: 'parking', name: 'Aparcamientos', color: '#60a5fa', f: [[['amenity', '^(parking|parking_entrance|bicycle_parking|motorcycle_parking)$']]] },
+  { id: 'finance', name: 'Bancos y cajeros', color: '#16a34a', f: [[['amenity', '^(bank|atm|bureau_de_change|money_transfer)$']]] },
+  { id: 'education', name: 'Educación y bibliotecas', color: '#a855f7', f: [[['amenity', '^(school|university|college|kindergarten|library|driving_school)$']]] },
+  { id: 'religion', name: 'Lugares de culto', color: '#d946ef', f: [[['amenity', '^place_of_worship$']]] },
+  { id: 'leisure', name: 'Ocio y deporte', color: '#84cc16', f: [[['leisure', '^(park|sports_centre|stadium|pitch|playground|fitness_centre|swimming_pool)$']], [['amenity', '^(cinema|theatre|arts_centre)$']]] },
+  { id: 'telecom', name: 'Antenas y telecomunicaciones', color: '#f59e0b', f: [[['man_made', '^(mast|antenna|communications_tower)$']], [['man_made', '^tower$'], ['tower:type', '^communication$']], [['telecom']]] },
+  { id: 'power', name: 'Energía (subestaciones, centrales)', color: '#facc15', f: [[['power', '^(substation|plant|transformer)$']]] },
+  { id: 'aero', name: 'Aeródromos y helipuertos', color: '#0ea5e9', f: [[['aeroway', '^(aerodrome|helipad|heliport|terminal)$']]] },
+  { id: 'wifi', name: 'WiFi público', color: '#2dd4bf', f: [[['internet_access', '^(wlan|wifi|yes|public)$']]] },
+  { id: 'services', name: 'Aseos, fuentes y refugios', color: '#9ca3af', f: [[['amenity', '^(toilets|drinking_water|shelter|telephone)$']]] },
+  { id: 'streets', name: 'Calles y carreteras', color: '#e2e8f0', line: true, f: [[['highway', '^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|pedestrian|service|motorway_link|trunk_link|primary_link)$'], ['name']]] },
+  { id: 'bridges', name: 'Puentes y túneles', color: '#fb923c', line: true, f: [[['highway'], ['bridge', '^(yes|viaduct|cantilever|covered|movable|trestle|boardwalk)$']], [['highway'], ['tunnel', '^(yes|building_passage)$']], [['railway'], ['bridge', '^(yes|viaduct)$']]] },
+  { id: 'rail', name: 'Vías férreas', color: '#a78bfa', line: true, f: [[['railway', '^(rail|subway|light_rail|tram|narrow_gauge)$']]] },
+  { id: 'powerlines', name: 'Líneas eléctricas', color: '#fde68a', line: true, f: [[['power', '^(line|minor_line|cable)$']]] },
+];
+const EXTRA_CATS = [
+  { id: 'wiki', name: 'Lugares con artículo en Wikipedia (monumentos, edificios, barrios…)', color: '#38bdf8', source: true },
+  { id: 'user', name: 'Mis marcadores', color: '#facc15' },
+  { id: 'import', name: 'Importados', color: '#14b8a6' },
+];
+const CAT = Object.fromEntries([...CATS, ...EXTRA_CATS].map(c => [c.id, c]));
+// Condiciones normalizadas {k, op: has|not|eq|ne|re|nre, v, i}
+CATS.forEach(c => { c.alts = c.f.map(conds => conds.map(([k, v]) => v ? { k, op: 're', v } : { k, op: 'has' })); });
+const DEFAULT_CATS = ['food', 'shop', 'poi', 'camera', 'signals', 'health', 'military', 'emergency', 'gov', 'transport', 'telecom', 'streets'];
+const catColor = id => (CAT[id] || CAT.import).color;
+const catName = id => (CAT[id] || { name: id }).name;
+/* ---------- Iconos (Font Awesome) ---------- */
+const CAT_ICONS = {
+  food: 'utensils', shop: 'cart-shopping', office: 'briefcase', lodging: 'bed', poi: 'star', camera: 'video', signals: 'traffic-light',
+  health: 'hospital', military: 'person-military-rifle', emergency: 'shield-halved', hydrant: 'faucet-drip', gov: 'building-flag', transport: 'train', busstop: 'bus',
+  fuel: 'gas-pump', parking: 'square-parking', finance: 'building-columns', education: 'graduation-cap', religion: 'place-of-worship',
+  leisure: 'futbol', telecom: 'tower-cell', power: 'bolt', aero: 'plane', wifi: 'wifi', services: 'restroom', streets: 'road',
+  bridges: 'bridge', rail: 'train', powerlines: 'bolt', wiki: 'w', user: 'location-dot', import: 'file-import', region: 'draw-polygon'
+};
+// [clave, regex, icono]: icono específico según etiquetas, como en OSM/Google
+const SUBTYPE_ICONS = [
+  ['amenity', /^pharmacy$/, 'prescription-bottle-medical'], ['amenity', /^cafe$/, 'mug-hot'], ['amenity', /^fast_food$/, 'burger'],
+  ['amenity', /^(bar|nightclub)$/, 'martini-glass'], ['amenity', /^(pub|biergarten)$/, 'beer-mug-empty'], ['amenity', /^ice_cream$/, 'ice-cream'],
+  ['amenity', /^(clinic|doctors)$/, 'user-doctor'], ['amenity', /^dentist$/, 'tooth'], ['amenity', /^veterinary$/, 'paw'],
+  ['amenity', /^police$/, 'shield-halved'], ['police', /./, 'shield-halved'], ['office', /^police$/, 'shield-halved'], ['amenity', /^fire_station$/, 'fire'], ['emergency', /^ambulance_station$/, 'truck-medical'],
+  ['emergency', /^defibrillator$/, 'heart-pulse'], ['amenity', /^bank$/, 'building-columns'], ['amenity', /^(atm|bureau_de_change|money_transfer)$/, 'money-bill'],
+  ['amenity', /^school$/, 'school'], ['amenity', /^kindergarten$/, 'child'], ['amenity', /^library$/, 'book'], ['amenity', /^post_office$/, 'envelope'],
+  ['amenity', /^embassy$/, 'flag'], ['office', /^diplomatic$/, 'flag'], ['amenity', /^courthouse$/, 'scale-balanced'], ['amenity', /^prison$/, 'lock'],
+  ['military', /^(airfield)$/, 'jet-fighter'], ['military', /^naval_base$/, 'anchor'], ['military', /^(range|danger_area)$/, 'bullseye'],
+  ['military', /^checkpoint$/, 'road-barrier'], ['military', /^bunker$/, 'dungeon'], ['military', /^(training_area)$/, 'person-running'], ['military', /^office$/, 'building-shield'],
+  ['military', /./, 'person-military-rifle'], ['landuse', /^military$/, 'flag'], ['amenity', /^townhall$/, 'building-flag'], ['amenity', /^fuel$/, 'gas-pump'],
+  ['amenity', /^charging_station$/, 'charging-station'], ['amenity', /^bicycle_parking$/, 'bicycle'], ['amenity', /^motorcycle_parking$/, 'motorcycle'],
+  ['amenity', /^taxi$/, 'taxi'], ['amenity', /^ferry_terminal$/, 'ship'], ['amenity', /^bus_station$/, 'bus'], ['railway', /^subway_entrance$/, 'train-subway'],
+  ['railway', /^tram_stop$/, 'train-tram'], ['highway', /^speed_camera$/, 'gauge-high'], ['enforcement', /./, 'gauge-high'],
+  ['contact:webcam', /./, 'camera'], ['webcam', /./, 'camera'], ['surveillance:type', /^ALPR$/i, 'car'], ['tourism', /^(hotel|motel)$/, 'hotel'],
+  ['tourism', /^camp_site$/, 'campground'], ['tourism', /^museum$/, 'landmark'], ['tourism', /^viewpoint$/, 'binoculars'], ['tourism', /^information$/, 'circle-info'],
+  ['tourism', /^(artwork|gallery)$/, 'palette'], ['tourism', /^(zoo|aquarium)$/, 'hippo'], ['historic', /^(castle|fort)$/, 'chess-rook'], ['historic', /./, 'monument'],
+  ['religion', /^christian$/, 'church'], ['religion', /^muslim$/, 'mosque'], ['religion', /^jewish$/, 'synagogue'], ['religion', /^buddhist$/, 'vihara'],
+  ['shop', /^(supermarket|convenience|greengrocer)$/, 'basket-shopping'], ['shop', /^(clothes|shoes|fashion)$/, 'shirt'], ['shop', /^bakery$/, 'bread-slice'],
+  ['shop', /^(hairdresser|beauty)$/, 'scissors'], ['shop', /^(car|car_repair|car_parts)$/, 'car'], ['shop', /^(mobile_phone|electronics|computer)$/, 'mobile-screen'],
+  ['shop', /^(butcher)$/, 'drumstick-bite'], ['shop', /^(books|newsagent)$/, 'book-open'], ['shop', /^(florist|garden_centre)$/, 'seedling'],
+  ['shop', /^(hardware|doityourself)$/, 'screwdriver-wrench'], ['shop', /^(jewelry)$/, 'gem'], ['shop', /^(optician)$/, 'glasses'], ['shop', /^(kiosk|tobacco)$/, 'store'],
+  ['craft', /./, 'wrench'], ['leisure', /^(park|garden)$/, 'tree'], ['leisure', /^(fitness_centre|sports_centre)$/, 'dumbbell'], ['leisure', /^swimming_pool$/, 'person-swimming'],
+  ['leisure', /^playground$/, 'child-reaching'], ['amenity', /^(cinema)$/, 'film'], ['amenity', /^(theatre|arts_centre)$/, 'masks-theater'],
+  ['man_made', /^(mast|communications_tower)$/, 'tower-cell'], ['man_made', /^antenna$/, 'satellite-dish'], ['power', /^plant$/, 'industry'],
+  ['aeroway', /^(helipad|heliport)$/, 'helicopter'], ['amenity', /^drinking_water$/, 'droplet'], ['amenity', /^telephone$/, 'phone'], ['amenity', /^shelter$/, 'house'],
+  ['amenity', /^parking/, 'square-parking'], ['amenity', /^place_of_worship$/, 'place-of-worship'], ['emergency', /^fire_hydrant$/, 'faucet-drip'],
+];
+const ICON_CHOICES = ['location-dot', 'location-crosshairs', 'crosshairs', 'bullseye', 'flag', 'star', 'circle-exclamation', 'triangle-exclamation', 'skull-crossbones',
+  'eye', 'video', 'camera', 'gauge-high', 'traffic-light', 'car', 'truck', 'bus', 'train', 'train-subway', 'plane', 'helicopter', 'jet-fighter', 'ship', 'taxi',
+  'bicycle', 'motorcycle', 'gas-pump', 'charging-station', 'square-parking', 'road', 'bridge', 'utensils', 'mug-hot', 'burger', 'martini-glass', 'beer-mug-empty',
+  'cart-shopping', 'basket-shopping', 'bag-shopping', 'store', 'shirt', 'bread-slice', 'scissors', 'gem', 'briefcase', 'building', 'industry', 'wrench', 'bed',
+  'hotel', 'landmark', 'monument', 'chess-rook', 'binoculars', 'hospital', 'kit-medical', 'prescription-bottle-medical', 'pills', 'user-doctor', 'truck-medical',
+  'heart-pulse', 'shield-halved', 'user-shield', 'fire', 'fire-extinguisher', 'faucet-drip', 'building-columns', 'building-flag', 'scale-balanced', 'lock',
+  'envelope', 'person-military-rifle', 'graduation-cap', 'school', 'book', 'place-of-worship', 'church', 'mosque', 'synagogue', 'futbol', 'dumbbell', 'tree',
+  'tower-cell', 'tower-broadcast', 'satellite-dish', 'bolt', 'plug', 'wifi', 'server', 'restroom', 'droplet', 'phone', 'house', 'house-chimney', 'warehouse',
+  'money-bill', 'credit-card', 'film', 'music', 'person', 'people-group', 'user-secret', 'dog', 'paw', 'anchor', 'mountain', 'water', 'campground', 'tent',
+  'box', 'radiation', 'biohazard', 'bomb', 'circle', 'square', 'certificate', 'question'];
+const iconClass = name => name === 'w' ? 'fa-brands fa-wikipedia-w' : 'fa-solid fa-' + name;
+function iconFor(f) {
+  const o = state.iconOverrides[f.key]; if (o && o.icon) return o.icon;
+  const co = state.catIcons[f.cat]; if (co && co.icon) return co.icon;
+  const t = f.tags || {};
+  if (f.src === 'osm') for (const [k, re, ic] of SUBTYPE_ICONS) if (t[k] != null && re.test(t[k])) return ic;
+  if (f.icon) return f.icon;
+  return CAT_ICONS[f.cat] || 'location-dot';
+}
+function featColor(f) {
+  const o = state.iconOverrides[f.key]; if (o && o.color) return o.color;
+  const co = state.catIcons[f.cat]; if (co && co.color) return co.color;
+  return f.color || catColor(f.cat);
+}
+const icoHtml = f => `<span class="ico ${f.geom.type !== 'Point' ? 'line' : ''}" style="--c:${featColor(f)}"><i class="${iconClass(f.geom.type === 'Point' ? iconFor(f) : (CAT_ICONS[f.cat] || 'route'))}"></i></span>`;
+/* ---------- Condiciones, tipos y consultas ---------- */
+const escRe = v => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const qv = v => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+function prepCond(c) { if ((c.op === 're' || c.op === 'nre') && !c.rx) c.rx = new RegExp(c.v, c.i ? 'i' : ''); return c; }
+function condMatch(c, t) {
+  const v = t[c.k];
+  switch (c.op) {
+    case 'has': return v != null; case 'not': return v == null;
+    case 'eq': return v === c.v; case 'ne': return v !== c.v;
+    case 're': return v != null && prepCond(c).rx.test(v); case 'nre': return v == null || !prepCond(c).rx.test(v);
+  }
+  return false;
+}
+function condQL(c) {
+  const k = `"${qv(c.k)}"`, i = c.i ? ',i' : '';
+  return { has: `[${k}]`, not: `[!${k}]`, eq: `[${k}="${qv(c.v)}"]`, ne: `[${k}!="${qv(c.v)}"]`, re: `[${k}~"${qv(c.v)}"${i}]`, nre: `[${k}!~"${qv(c.v)}"${i}]` }[c.op];
+}
+const condText = c => ({ has: c.k, not: '!' + c.k, eq: `${c.k}=${c.v}`, ne: `${c.k}!=${c.v}`, re: `${c.k}~${c.v}`, nre: `${c.k}!~${c.v}` }[c.op]);
+// Valores enumerados de una alternativa (para poder elegir tipos concretos)
+function altEnum(alt) {
+  const c0 = alt[0];
+  if (c0.op === 'eq') return [c0.v];
+  if (c0.op === 're' && !c0.i) {
+    const m = c0.v.match(/^\^\(([^()]+)\)\$$/) || c0.v.match(/^\^([^()|]+)\$$/);
+    if (m && !/[\\.*+?\[\]{}^$]/.test(m[1])) return m[1].split('|');
+  }
+  return null;
+}
+const VALUE_ES = {
+  restaurant: 'Restaurante', cafe: 'Cafetería', fast_food: 'Comida rápida', bar: 'Bar', pub: 'Pub', biergarten: 'Cervecería al aire libre', food_court: 'Zona de restauración', ice_cream: 'Heladería', nightclub: 'Discoteca',
+  hotel: 'Hotel', hostel: 'Albergue', guest_house: 'Casa de huéspedes / hostal', motel: 'Motel', apartment: 'Apartamento turístico', camp_site: 'Camping', chalet: 'Chalet',
+  attraction: 'Atracción', museum: 'Museo', viewpoint: 'Mirador', artwork: 'Obra de arte', gallery: 'Galería', information: 'Información turística', zoo: 'Zoo', theme_park: 'Parque temático', aquarium: 'Acuario',
+  surveillance: 'Cámara de vigilancia', speed_camera: 'Radar de velocidad', traffic_signals: 'Semáforo',
+  hospital: 'Hospital', clinic: 'Clínica / centro de salud', doctors: 'Consulta médica', dentist: 'Dentista', pharmacy: 'Farmacia', veterinary: 'Veterinario',
+  police: 'Policía', fire_station: 'Bomberos', ranger_station: 'Guardería forestal', ambulance_station: 'Base de ambulancias', defibrillator: 'Desfibrilador', assembly_point: 'Punto de encuentro', emergency_ward_entrance: 'Entrada de urgencias',
+  fire_hydrant: 'Hidrante', water_tank: 'Depósito de agua', suction_point: 'Punto de aspiración',
+  townhall: 'Ayuntamiento', courthouse: 'Juzgado', embassy: 'Embajada', post_office: 'Oficina de correos', prison: 'Prisión', community_centre: 'Centro cívico', government: 'Oficina gubernamental', diplomatic: 'Misión diplomática',
+  station: 'Estación', halt: 'Apeadero', tram_stop: 'Parada de tranvía', subway_entrance: 'Entrada de metro', bus_station: 'Estación de autobuses', ferry_terminal: 'Terminal de ferri', taxi: 'Parada de taxi', bus_stop: 'Parada de autobús',
+  fuel: 'Gasolinera', charging_station: 'Punto de recarga', parking: 'Aparcamiento', parking_entrance: 'Entrada de aparcamiento', bicycle_parking: 'Aparcabicis', motorcycle_parking: 'Aparcamiento de motos',
+  bank: 'Banco', atm: 'Cajero automático', bureau_de_change: 'Casa de cambio', money_transfer: 'Envío de dinero',
+  school: 'Colegio / instituto', university: 'Universidad', college: 'Centro de formación', kindergarten: 'Guardería / infantil', library: 'Biblioteca', driving_school: 'Autoescuela',
+  place_of_worship: 'Lugar de culto', park: 'Parque', sports_centre: 'Polideportivo', stadium: 'Estadio', pitch: 'Pista deportiva', playground: 'Parque infantil', fitness_centre: 'Gimnasio', swimming_pool: 'Piscina',
+  base: 'Base militar', barracks: 'Cuartel', airfield: 'Aeródromo militar', naval_base: 'Base naval', training_area: 'Zona de instrucción', range: 'Campo de tiro',
+  office: 'Oficina / dependencia militar', checkpoint: 'Puesto de control', bunker: 'Búnker', danger_area: 'Zona de peligro', academy: 'Academia militar', military: 'Terreno militar (landuse)',
+  cinema: 'Cine', theatre: 'Teatro', arts_centre: 'Centro cultural', mast: 'Mástil / antena', antenna: 'Antena', communications_tower: 'Torre de comunicaciones', tower: 'Torre',
+  substation: 'Subestación', plant: 'Central eléctrica', transformer: 'Transformador', aerodrome: 'Aeródromo', helipad: 'Helipuerto', heliport: 'Heliestación', terminal: 'Terminal',
+  wlan: 'WiFi', wifi: 'WiFi', yes: 'Sí', public: 'Público', toilets: 'Aseos', drinking_water: 'Fuente de agua', shelter: 'Refugio', telephone: 'Teléfono público',
+  motorway: 'Autopista', trunk: 'Autovía', primary: 'Carretera principal', secondary: 'Carretera secundaria', tertiary: 'Carretera terciaria', unclassified: 'Vía sin clasificar', residential: 'Calle residencial',
+  living_street: 'Calle de convivencia', pedestrian: 'Calle peatonal', service: 'Vía de servicio', motorway_link: 'Enlace de autopista', trunk_link: 'Enlace de autovía', primary_link: 'Enlace',
+  viaduct: 'Viaducto', cantilever: 'Voladizo', covered: 'Cubierto', movable: 'Móvil', trestle: 'Caballete', boardwalk: 'Pasarela', building_passage: 'Paso bajo edificio',
+  rail: 'Ferrocarril', subway: 'Metro', light_rail: 'Tren ligero', tram: 'Tranvía', narrow_gauge: 'Vía estrecha', line: 'Línea de alta tensión', minor_line: 'Línea de baja tensión', cable: 'Cable',
+  supermarket: 'Supermercado', convenience: 'Tienda de conveniencia', clothes: 'Ropa', bakery: 'Panadería', hairdresser: 'Peluquería', chemist: 'Droguería',
+};
+const typeLabel = (k, v) => VALUE_ES[v] || (v || k).replace(/_/g, ' ');
+function compileCat(c) {
+  const sel = state.catTypes[c.id];
+  c.types = []; c.eff = [];
+  c.alts.forEach((alt, i) => {
+    const en = altEnum(alt);
+    if (en) {
+      en.forEach(v => c.types.push({ id: `${i}=${v}`, k: alt[0].k, v, label: c.typeLabels?.[`${i}=${v}`] || typeLabel(alt[0].k, v), code: `${alt[0].k}=${v}${alt.length > 1 ? ' + ' + alt.slice(1).map(condText).join(' + ') : ''}` }));
+      const vals = sel ? en.filter(v => sel.includes(`${i}=${v}`)) : en;
+      if (vals.length) c.eff.push([{ k: alt[0].k, op: 're', v: '^(' + vals.map(escRe).join('|') + ')$' }, ...alt.slice(1)]);
+    } else {
+      c.types.push({ id: String(i), label: alt.map(condText).join(' + '), code: alt.map(condText).join(' + ') });
+      if (!sel || sel.includes(String(i))) c.eff.push(alt);
+    }
+  });
+  c.eff.forEach(alt => alt.forEach(prepCond));
+}
+const matchCat = (c, tags) => (c.eff || []).some(alt => alt.every(cnd => condMatch(cnd, tags)));
+const matchedAlt = (c, tags) => (c.eff || []).find(alt => alt.every(cnd => condMatch(cnd, tags)));
+// Texto de filtro → alternativas de condiciones
+function parseFilterText(txt) {
+  const OPS = { '=': 'eq', '!=': 'ne', '~': 're', '!~': 'nre' }, alts = [];
+  for (let line of txt.split('\n')) {
+    line = line.trim(); if (!line || line.startsWith('#')) continue;
+    const conds = [];
+    if (line.startsWith('[')) {
+      const re = /\[\s*(!)?\s*"?([^"\]=!~]+?)"?\s*(?:(=|!=|~|!~)\s*"((?:[^"\\]|\\.)*)"\s*(,\s*i)?)?\s*\]/g; let m;
+      while ((m = re.exec(line))) conds.push({ k: m[2].trim(), op: m[1] ? 'not' : m[3] ? OPS[m[3]] : 'has', v: m[4] != null ? m[4].replace(/\\(.)/g, '$1') : undefined, i: !!m[5] });
+    } else {
+      for (let part of line.split('&')) {
+        part = part.trim(); if (!part) continue; let m;
+        if ((m = part.match(/^!\s*([^=~!]+)$/))) conds.push({ k: m[1].trim(), op: 'not' });
+        else if ((m = part.match(/^([^=~!]+?)\s*(!=|!~|=|~)\s*(.+)$/))) {
+          const k = m[1].trim(), v = m[3].trim();
+          if (m[2] === '=' && v.includes('|')) conds.push({ k, op: 're', v: '^(' + v.split('|').map(x => escRe(x.trim())).join('|') + ')$' });
+          else conds.push({ k, op: OPS[m[2]], v, i: m[2].includes('~') });
+        } else if (/^[\w:.-]+$/.test(part)) conds.push({ k: part, op: 'has' });
+        else throw new Error(`No entiendo «${part}»`);
+      }
+    }
+    if (!conds.length) throw new Error(`Línea no válida: ${line}`);
+    if (!conds.some(c => ['has', 'eq', 're'].includes(c.op))) throw new Error(`Cada línea necesita al menos una condición positiva: ${line}`);
+    conds.forEach(c => { if (c.op === 're' || c.op === 'nre') try { new RegExp(c.v); } catch (e) { throw new Error(`Expresión no válida: ${c.v}`); } });
+    alts.push(conds);
+  }
+  if (!alts.length) throw new Error('Escribe al menos un filtro');
+  return alts;
+}
+// Categorías personalizadas del usuario: se integran en CATS/CAT
+function syncCustomCats() {
+  for (let i = CATS.length - 1; i >= 0; i--) if (CATS[i].custom) { delete CAT[CATS[i].id]; CATS.splice(i, 1); }
+  (state.customCats || []).forEach(cc => {
+    let alts; try { alts = parseFilterText(cc.filter); } catch (e) { return; }
+    const c = { id: cc.id, name: cc.name, color: cc.color, line: !!cc.line, custom: true, alts };
+    CAT_ICONS[cc.id] = cc.icon || 'star';
+    CATS.push(c); CAT[c.id] = c;
+  });
+  CATS.forEach(compileCat);
+}
+
+/* ---------- Fiabilidad de cada elemento ---------- */
+const NAME_HINTS = {
+  restaurant: { yes: /restaura|asador|marisquer|pizz|kebab|bistr|taberna|mes[oó]n|tasca|cocina|sushi|grill|burger|wok|arroc|brasa|trattor|tapas|gastro|comedor|chiringuito|parrilla|steak|ramen|china|india/i, no: /\b(pub|cafeter[ií]a|helader[ií]a|discoteca|pub|panader[ií]a|pasteler[ií]a|farmacia|hotel|hostal|tienda|supermercado|peluquer[ií]a|gimnasio)\b/i },
+  cafe: { yes: /caf[eé]|coffee|cafeter|desayun|churrer|teter[ií]a|brunch|chocolater/i, no: /\b(restaurante|asador|pub|discoteca|kebab|pizzer[ií]a|farmacia|tienda)\b/i },
+  bar: { yes: /\bbar\b|cervecer|taberna|tasca|bodega|copas|cocktail|c[oó]ctel|vermut|tapas/i, no: /\b(panader[ií]a|farmacia|hotel|tienda|peluquer[ií]a|supermercado)\b/i },
+  pub: { yes: /pub|irish|tavern|cervecer|copas|beer/i, no: /\b(cafeter[ií]a|panader[ií]a|farmacia|tienda)\b/i },
+  fast_food: { yes: /burger|kebab|pizza|d[oö]ner|mcdonald|kfc|telepizza|domino|subway|bocater|hot ?dog|taco|wok|pollo|frankfurt|100 montaditos|popeyes|five guys|tgb|goiko/i, no: /\b(farmacia|hotel|banco|tienda)\b/i },
+  pharmacy: { yes: /farmac|pharm|botica|apotek/i, no: /parafarmac|ortopedi|herbolar|[oó]ptica|veterinar|perfumer/i },
+  police: { yes: /polic|guardia civil|comisar|mossos|ertzaintza|cuartel|gendarm|seguridad ciudadana|udyco|brigada/i, no: /seguridad privada|prosegur|securitas|vigilancia|academia|tienda|escuela|asociaci[oó]n|sindicato/i },
+  fire_station: { yes: /bomber|incendio|fire|parque|salvamento/i, no: /academia|tienda|asociaci[oó]n/i },
+  hospital: { yes: /hospital|cl[ií]nic|sanatori|policl|centro m[eé]dico|materno|quir[oó]n|vithas|hm /i, no: /veterinar|dental|est[eé]tic|fisioter|podolog|[oó]ptica/i },
+  bank: { yes: /banc|caja|caixa|bbva|santander|sabadell|bankinter|unicaja|ibercaja|kutxa|abanca|\bing\b|cajamar|rural|openbank|deutsche|evo/i, no: /cajero|\batm\b|seguros|inmobiliaria/i },
+  fuel: { yes: /gasolin|repsol|cepsa|moeve|\bbp\b|galp|shell|petro|estaci[oó]n de servicio|\be\.?s\.?\b|ballenoil|plenoil|avia|disa|petronor|campsa|esclatoil|meroil|carrefour|alcampo|eroski/i, no: /taller|lavader|lavado|neum[aá]tic|recambios/i },
+  school: { yes: /colegio|escuela|c\.?e\.?i\.?p|\bies\b|instituto|school|liceo|educaci|\bcp\b|\bcc\b|cole/i, no: /autoescuela|academia|escuela de (baile|idiomas|m[uú]sica|conducir|danza)|guarder[ií]a|parking/i },
+  hotel: { yes: /hotel|parador|resort|\binn\b|suites/i, no: /hostal|pensi[oó]n|apartament|albergue|camping|restaurante/i },
+  supermarket: { yes: /super|mercadona|carrefour|lidl|aldi|\bdia\b|eroski|alcampo|consum|hipercor|\bbm\b|spar|covir[aá]n|ahorram[aá]s|masymas|gadis|froiz|bonpreu|condis|caprabo|mercado|hiper/i, no: /farmacia|ferreter|bazar|restaurante/i },
+  atm: { no: /\boficina\b|sucursal/i },
+};
+const NONAME_OK = new Set(['military', 'signals', 'hydrant', 'camera', 'busstop', 'parking', 'services', 'powerlines', 'bridges', 'rail', 'wifi', 'power', 'telecom']);
+const LIFECYCLE_KEY = /^(disused|abandoned|demolished|razed|removed|destroyed|was|closed|former|construction|proposed|planned|not)(:|$)/;
+function assessQuality(t, cat, primary, ts) {
+  const why = []; let s = 50, closed = false;
+  const lc = Object.keys(t).filter(k => LIFECYCLE_KEY.test(k) && t[k] !== 'no');
+  if (lc.length) { closed = true; why.push(['bad', `Marcado como cerrado / en desuso / en obras (${lc.slice(0, 2).join(', ')})`]); }
+  if (/^(closed|off)$/i.test((t.opening_hours || '').trim())) { closed = true; why.push(['bad', 'Horario: cerrado']); }
+  if (t.end_date && /^\d{4}/.test(t.end_date) && new Date(t.end_date) < new Date()) { closed = true; why.push(['bad', `Fecha de fin: ${t.end_date}`]); }
+  if (t.name) { s += 15; why.push(['ok', 'Tiene nombre']); }
+  else if (!NONAME_OK.has(cat)) { s -= 10; why.push(['warn', 'Sin nombre']); }
+  const CORRO = [['opening_hours', 'horario'], ['phone|contact:phone|contact:mobile', 'teléfono'], ['website|contact:website|url|contact:facebook|contact:instagram', 'web o redes'],
+    ['addr:street|addr:housenumber|addr:full', 'dirección'], ['cuisine', 'tipo de cocina'], ['brand:wikidata|wikidata', 'enlace a Wikidata'], ['operator|brand', 'operador / marca'], ['email|contact:email', 'email']];
+  let nc = 0;
+  CORRO.forEach(([ks, lbl]) => { if (ks.split('|').some(k => t[k])) { nc++; why.push(['ok', `Tiene ${lbl}`]); } });
+  s += Math.min(nc, 5) * 6;
+  const pv = primary ? t[primary] : null, h = pv && NAME_HINTS[pv];
+  if (h && t.name) {
+    if (h.no && h.no.test(t.name) && !(h.yes && h.yes.test(t.name))) { s -= 30; why.push(['bad', `El nombre «${t.name}» no encaja con «${typeLabel(primary, pv)}»`]); }
+    else if (h.yes && h.yes.test(t.name)) { s += 10; why.push(['ok', `El nombre encaja con «${typeLabel(primary, pv)}»`]); }
+  }
+  const mixed = [];
+  if (t.amenity && t.shop && !/^(fuel|pharmacy|cafe|post_office|ice_cream|fast_food)$/.test(t.amenity)) mixed.push(`amenity=${t.amenity} + shop=${t.shop}`);
+  if (t.amenity && t.office && !/^(townhall|courthouse|police|embassy|post_office)$/.test(t.amenity)) mixed.push(`amenity=${t.amenity} + office=${t.office}`);
+  if (t.shop && t.office) mixed.push(`shop=${t.shop} + office=${t.office}`);
+  if (mixed.length) { s -= 12; why.push(['warn', `Etiquetado mixto: ${mixed.join('; ')}`]); }
+  const fx = t.fixme || t.FIXME || t['note:fixme'];
+  if (fx) { s -= 10; why.push(['warn', `Pendiente de revisión: ${fx}`]); }
+  const chk = ['check_date', 'survey:date', 'check_date:opening_hours', 'survey_date'].map(k => t[k]).filter(v => /^\d{4}/.test(v || '')).sort().pop();
+  const last = chk || ts;
+  if (last) {
+    const yrs = (Date.now() - new Date(last)) / 3.156e10;
+    if (yrs < 2) { s += 10; why.push(['ok', `${chk ? 'Comprobado en el terreno' : 'Editado'} en ${String(last).slice(0, 7)}`]); }
+    else if (yrs > 6) { s -= 10; why.push(['warn', `Sin cambios desde ${String(last).slice(0, 4)}`]); }
+    else why.push(['ok', `Última edición ${String(last).slice(0, 7)}`]);
+  }
+  if (closed) s = Math.min(s, 15);
+  return { s: Math.max(0, Math.min(100, Math.round(s))), why, closed };
+}
+function confLevel(f) {
+  if (state.verified[f.key]) return 'ver';
+  if (!f.q) return null;
+  if (f.q.closed) return 'closed';
+  return f.q.s >= 70 ? 'alta' : f.q.s >= 45 ? 'media' : 'baja';
+}
+const CONF_TXT = { ver: 'Confirmado por ti', alta: 'Confianza alta', media: 'Confianza media', baja: 'Confianza baja', closed: 'Posible cerrado' };
+function confBadge(f, long) {
+  const l = confLevel(f); if (!l) return '';
+  return `<span class="conf c-${l}" title="${CONF_TXT[l]}${f.q ? ' · ' + f.q.s + '/100' : ''}">${long ? CONF_TXT[l] + (f.q && l !== 'ver' ? ` (${f.q.s}/100)` : '') : l === 'ver' ? '✓' : l === 'closed' ? '✖' : f.q.s}</span>`;
+}
+function passQuality(f) {
+  if (!f.q) return true;
+  if (state.verified[f.key]) return true;
+  if (state.hideClosed && f.q.closed) return false;
+  if (state.minConf === 'ver') return false;
+  return f.q.s >= (+state.minConf || 0);
+}
+
+/* =========================================================================
+   Estado y persistencia
+   ========================================================================= */
+const DEFAULT_SETTINGS = {
+  coordFormat: 'dd', ddPrec: 6, mgrsPrec: 5, datum: 'WGS84', units: 'metric', grid: 'none', showScale: true, showCursor: true,
+  fly: true, inertia: true, wheel: true, wheelPx: 60, home: { lat: 40.4168, lon: -3.7038, zoom: 6 }, theme: 'auto',
+  overpass: 'https://overpass-api.de/api/interpreter', maxResults: 3000, timeout: 90, maxArea: 2500, wikiLang: 'es', autoLoad: true,
+  cotType: 'b-m-p-s-m', staleDays: 365, iconZoom: 12, baseLayer: 'Calles (Esri)', overlays: []
+};
+const STORE_KEY = 'osintmap.v1';
+let S = structuredClone(DEFAULT_SETTINGS);
+const state = {
+  regions: [],          // {id,name,color,geom:{type:'rect'|'poly'|'circle',...}, loadedAt, counts}
+  activeRegion: null,
+  marked: {},           // key → feature
+  custom: {},           // key → feature (puntos propios e importados)
+  discarded: {},        // key → categoría (elementos quitados del mapa por el usuario)
+  iconOverrides: {},    // key → {icon, color}
+  catIcons: {},         // categoría → {icon, color}
+  catTypes: {},         // categoría → [ids de tipos seleccionados] (sin entrada = todos)
+  customCats: [],       // [{id, name, color, icon, line, filter}]
+  verified: {},         // key → fecha en que el usuario lo confirmó
+  hideClosed: true,
+  minConf: '0',
+  selCats: [...DEFAULT_CATS],
+  hiddenCats: [],
+  showMarkedOnly: false,
+  showRegions: true,
+  tab: 'regions'
+};
+const regionData = {};  // regionId → [features] (solo memoria)
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    S = Object.assign(structuredClone(DEFAULT_SETTINGS), d.settings || {});
+    ['regions', 'activeRegion', 'marked', 'custom', 'discarded', 'iconOverrides', 'catIcons', 'catTypes', 'customCats', 'verified', 'hideClosed', 'minConf', 'selCats', 'hiddenCats', 'showMarkedOnly', 'showRegions', 'tab'].forEach(k => { if (d[k] !== undefined) state[k] = d[k]; });
+  } catch (e) { console.warn('No se pudo leer el almacenamiento local', e); }
+}
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      const { regions, activeRegion, marked, custom, discarded, iconOverrides, catIcons, catTypes, customCats, verified, hideClosed, minConf, selCats, hiddenCats, showMarkedOnly, showRegions, tab } = state;
+      localStorage.setItem(STORE_KEY, JSON.stringify({ settings: S, regions, activeRegion, marked, custom, discarded, iconOverrides, catIcons, catTypes, customCats, verified, hideClosed, minConf, selCats, hiddenCats, showMarkedOnly, showRegions, tab }));
+    } catch (e) { console.warn('No se pudo guardar', e); }
+  }, 250);
+}
+load();
+// Migración: activar una vez la nueva categoría militar para quien ya usaba la app
+try { if (!localStorage.getItem('osintmap.cat.military')) { if (!state.selCats.includes('military')) state.selCats.push('military'); localStorage.setItem('osintmap.cat.military', '1'); } } catch (e) { /* sin almacenamiento */ }
+syncCustomCats();
+
+/* ---------- Historial: deshacer / rehacer ---------- */
+const HIST_KEYS = ['regions', 'activeRegion', 'marked', 'custom', 'discarded', 'iconOverrides', 'catIcons', 'catTypes', 'customCats', 'verified', 'hideClosed', 'minConf', 'selCats', 'hiddenCats'];
+const History = {
+  undo: [], redo: [], max: 100,
+  snap() { const o = {}; HIST_KEYS.forEach(k => o[k] = state[k]); return JSON.stringify(o); },
+  push(label) {
+    this.undo.push({ label, data: this.snap() });
+    if (this.undo.length > this.max) this.undo.shift();
+    this.redo = []; this.buttons();
+  },
+  restore(data) { const o = JSON.parse(data); HIST_KEYS.forEach(k => state[k] = o[k]); syncCustomCats(); },
+  step(from, to, verb) {
+    const e = from.pop(); if (!e) return;
+    to.push({ label: e.label, data: this.snap() });
+    this.restore(e.data);
+    map.closePopup(); save(); renderCats(); renderRegions(); renderFeatures(); updateLists(); this.buttons();
+    toast(`${verb}: ${e.label}`);
+  },
+  doUndo() { this.step(this.undo, this.redo, 'Deshecho'); },
+  doRedo() { this.step(this.redo, this.undo, 'Rehecho'); },
+  buttons() {
+    const u = $('#btnUndo'), r = $('#btnRedo');
+    u.disabled = !this.undo.length; r.disabled = !this.redo.length;
+    u.title = this.undo.length ? `Deshacer: ${this.undo.at(-1).label} (Ctrl+Z)` : 'Deshacer (Ctrl+Z)';
+    r.title = this.redo.length ? `Rehacer: ${this.redo.at(-1).label} (Ctrl+Y)` : 'Rehacer (Ctrl+Y)';
+  }
+};
+
+/* =========================================================================
+   Mapa
+   ========================================================================= */
+const map = L.map('map', {
+  zoomControl: false, preferCanvas: true, worldCopyJump: true, inertia: S.inertia,
+  scrollWheelZoom: S.wheel, wheelPxPerZoomLevel: S.wheelPx, zoomSnap: 0.5, minZoom: 2, maxZoom: 20
+}).setView([S.home.lat, S.home.lon], S.home.zoom);
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+const BASES = {
+  'Calles (Esri)': L.tileLayer(ESRI + 'World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors' }),
+  'Satélite (Esri)': L.tileLayer(ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics' }),
+  'Topográfico (Esri)': L.tileLayer(ESRI + 'World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, attribution: '© Esri, HERE, Garmin, FAO, USGS' }),
+  'Gris oscuro (Esri)': L.tileLayer(ESRI + 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors' }),
+  'Gris claro (Esri)': L.tileLayer(ESRI + 'Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 16, attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors' }),
+  'Ortofoto PNOA (España · IGN)': L.tileLayer('https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&VERSION=1.0.0&Layer=OI.OrthoimageCoverage&Style=default&Format=image/jpeg&TileMatrixSet=GoogleMapsCompatible&TileMatrix={z}&TileRow={y}&TileCol={x}', { maxZoom: 21, maxNativeZoom: 20, attribution: 'PNOA © Instituto Geográfico Nacional (CC-BY 4.0) scne.es' }),
+  'Mapa IGN (España)': L.tileLayer('https://www.ign.es/wmts/ign-base?request=GetTile&service=WMTS&VERSION=1.0.0&Layer=IGNBaseTodo&Style=default&Format=image/jpeg&TileMatrixSet=GoogleMapsCompatible&TileMatrix={z}&TileRow={y}&TileCol={x}', { maxZoom: 20, maxNativeZoom: 17, attribution: '© Instituto Geográfico Nacional (CC-BY 4.0) scne.es' }),
+  'Topográfico (OpenTopoMap)': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 17, attribution: '© OpenStreetMap, SRTM · © OpenTopoMap (CC-BY-SA)' }),
+  'OpenStreetMap ⚠ servidor web': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, maxNativeZoom: 19, attribution: '© OpenStreetMap contributors' }),
+  'Calles CARTO ⚠ servidor web': L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 20, subdomains: 'abcd', attribution: '© OpenStreetMap contributors © CARTO' }),
+  'Oscuro CARTO ⚠ servidor web': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20, subdomains: 'abcd', attribution: '© OpenStreetMap © CARTO' }),
+  'Humanitario HOT ⚠ servidor web': L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19, attribution: '© OpenStreetMap, HOT' }),
+};
+const CATASTRO_LAYER = 'Catastro: parcelas y edificios (España)';
+const OVERLAYS = {
+  [CATASTRO_LAYER]: L.tileLayer.wms('https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx', { layers: 'Catastro', format: 'image/png', transparent: true, version: '1.1.1', minZoom: 15, maxZoom: 21, attribution: '© Dirección General del Catastro' }),
+  'Etiquetas IGN (calles y topónimos de España)': L.tileLayer.wms('https://www.ign.es/wms-inspire/ign-base', { layers: 'IGNBaseOrto', format: 'image/png', transparent: true, version: '1.3.0', maxZoom: 21, attribution: '© IGN' }),
+  'Etiquetas y fronteras (Esri)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, attribution: '© Esri' }),
+  'Carreteras (Esri)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, attribution: '© Esri' }),
+  'Ferrocarril (OpenRailwayMap)': L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenRailwayMap' }),
+  'Relieve (Esri)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 16, opacity: .45, attribution: '© Esri' }),
+};
+// OSM, CARTO y HOT bloquean peticiones sin Referer (al abrir el HTML como file://); Esri no.
+if (!BASES[S.baseLayer] || (location.protocol === 'file:' && S.baseLayer.includes('⚠'))) S.baseLayer = DEFAULT_SETTINGS.baseLayer;
+BASES[S.baseLayer].addTo(map);
+(S.overlays || []).forEach(n => OVERLAYS[n] && OVERLAYS[n].addTo(map));
+L.control.layers(BASES, OVERLAYS, { position: 'topright' }).addTo(map);
+map.on('baselayerchange', e => {
+  S.baseLayer = e.name; save();
+  if (location.protocol === 'file:' && e.name.includes('⚠')) toast('Este mapa solo funciona si la página se sirve desde un servidor web (no con doble clic). Usa uno de Esri.', true, 7000);
+});
+map.on('overlayadd overlayremove', () => { S.overlays = Object.keys(OVERLAYS).filter(n => map.hasLayer(OVERLAYS[n])); save(); });
+
+map.createPane('regions').style.zIndex = 450;
+map.createPane('grid').style.zIndex = 380;
+map.getPane('grid').style.pointerEvents = 'none';
+const regionRenderer = L.svg({ pane: 'regions' });
+const regionsLayer = L.featureGroup().addTo(map);
+const dataLayer = L.featureGroup().addTo(map);
+const markedLayer = L.featureGroup().addTo(map);
+const drawLayer = L.featureGroup().addTo(map);
+const measureLayer = L.featureGroup().addTo(map);
+const gridLayer = L.layerGroup().addTo(map);
+const tempLayer = L.layerGroup().addTo(map);
+let scaleCtl = null;
+
+/* ---------- Índices de elementos ---------- */
+const layerByKey = new Map();
+function featureByKey(key) {
+  if (state.custom[key]) return state.custom[key];
+  if (state.marked[key]) return state.marked[key];
+  for (const id in regionData) { const f = regionData[id].find(x => x.key === key); if (f) return f; }
+  return null;
+}
+const isMarked = key => !!state.marked[key];
+const featLatLng = f => {
+  const g = f.geom;
+  if (g.type === 'Point') return g.coords;
+  const c = g.coords; return c[Math.floor(c.length / 2)];
+};
+const activeFeatures = () => (state.activeRegion && regionData[state.activeRegion]) || [];
+const catVisible = id => !state.hiddenCats.includes(id);
+
+function featureStyle(f, marked) {
+  const c = featColor(f);
+  if (f.geom.type === 'Point') return { radius: marked ? 8 : 5.5, color: marked ? '#fde047' : '#0b0f13', weight: marked ? 3 : 1, fillColor: c, fillOpacity: .95, opacity: 1 };
+  return { color: marked ? '#fde047' : c, weight: marked ? 6 : 3.5, opacity: .9, fillColor: c, fillOpacity: .15 };
+}
+function makeLayer(f) {
+  const marked = isMarked(f.key);
+  const st = featureStyle(f, marked);
+  let lyr;
+  if (f.geom.type === 'Point' && (marked || useIcons)) {
+    lyr = L.marker(f.geom.coords, { icon: pinIcon(f, marked), riseOnHover: true, keyboard: false, zIndexOffset: marked ? 1000 : 0, bubblingMouseEvents: false });
+  } else if (f.geom.type === 'Point') lyr = L.circleMarker(f.geom.coords, { ...st, bubblingMouseEvents: false });
+  else if (f.geom.type === 'Polygon') lyr = L.polygon(f.geom.coords, st);
+  else lyr = L.polyline(f.geom.coords, st);
+  if (lyr.options) lyr.options.bubblingMouseEvents = false;
+  lyr.bindTooltip(esc(f.name || catName(f.cat)) + (marked ? ' ✓' : ''), { direction: 'top', offset: lyr instanceof L.Marker ? [0, -30] : [0, -4] });
+  lyr.on('click', e => {
+    if (Draw.mode === 'discard') return discardFeatures([f.key]);
+    if (Draw.mode) return Draw.click(e.latlng);
+    openFeaturePopup(f.key, f.geom.type === 'Point' ? L.latLng(f.geom.coords) : e.latlng);
+  });
+  lyr._key = f.key;
+  return lyr;
+}
+function pinIcon(f, marked) {
+  return L.divIcon({
+    className: '', iconSize: [28, 28], iconAnchor: [14, 34], popupAnchor: [0, -30],
+    html: `<div class="pin-wrap ${{ baja: 'lowq', closed: 'closedq' }[confLevel(f)] || ''}"><div class="pin ${marked ? 'marked' : ''}" style="--c:${featColor(f)}"><i class="${iconClass(iconFor(f))}"></i></div>${marked ? '<span class="chk-badge">✓</span>' : ''}</div>`
+  });
+}
+let useIcons = true;
+const isDiscarded = key => !!state.discarded[key];
+function shouldShow(f) {
+  if (isMarked(f.key)) return true;
+  if (isDiscarded(f.key)) return false;
+  if (state.showMarkedOnly) return false;
+  if (!catVisible(f.cat)) return false;
+  if (f.src === 'osm') {
+    const c = CAT[f.cat];
+    if (c && c.eff && !matchCat(c, f.tags)) return false; // tipo desactivado dentro de la categoría
+    if (!passQuality(f)) return false;
+  }
+  return true;
+}
+function renderFeatures() {
+  useIcons = map.getZoom() >= S.iconZoom;
+  dataLayer.clearLayers(); markedLayer.clearLayers(); layerByKey.clear();
+  const seen = new Set();
+  const add = (f, grp) => { if (seen.has(f.key)) return; seen.add(f.key); const l = makeLayer(f); layerByKey.set(f.key, l); grp.addLayer(l); };
+  Object.values(state.marked).forEach(f => add(f, markedLayer));
+  Object.values(state.custom).forEach(f => shouldShow(f) && add(f, dataLayer));
+  activeFeatures().forEach(f => shouldShow(f) && add(f, dataLayer));
+  updateBadges();
+}
+map.on('zoomend', () => { if ((map.getZoom() >= S.iconZoom) !== useIcons) renderFeatures(); });
+function refreshFeature(key) {
+  const old = layerByKey.get(key);
+  if (old) { dataLayer.removeLayer(old); markedLayer.removeLayer(old); layerByKey.delete(key); }
+  const f = featureByKey(key);
+  if (!f) return;
+  const inActive = activeFeatures().some(x => x.key === key) || state.custom[key];
+  if (isMarked(key) || (inActive && shouldShow(f))) {
+    const l = makeLayer(f); layerByKey.set(key, l);
+    (isMarked(key) ? markedLayer : dataLayer).addLayer(l);
+  }
+}
+
+/* ---------- Marcado ---------- */
+function setMarked(key, on, quiet) {
+  const f = featureByKey(key); if (!f) return;
+  if (on) state.marked[key] = f; else delete state.marked[key];
+  if (!quiet) { refreshFeature(key); save(); updateLists(); }
+}
+function toggleMark(key) {
+  const f = featureByKey(key);
+  History.push(`${isMarked(key) ? 'desmarcar' : 'marcar'} «${f?.name || 'elemento'}»`);
+  setMarked(key, !isMarked(key));
+}
+function bulkMark(keys, on) {
+  if (!keys.length) return;
+  History.push(`${on ? 'marcar' : 'desmarcar'} ${keys.length} elemento(s)`);
+  keys.forEach(k => setMarked(k, on, true));
+  save(); renderFeatures(); updateLists();
+  toast(`${keys.length} elemento(s) ${on ? 'marcados' : 'desmarcados'}`);
+}
+
+/* ---------- Descartar ---------- */
+function discardFeatures(keys) {
+  keys = keys.filter(k => !isDiscarded(k)); if (!keys.length) return;
+  const f0 = featureByKey(keys[0]);
+  History.push(keys.length === 1 ? `descartar «${f0?.name || catName(f0?.cat)}»` : `descartar ${keys.length} elementos`);
+  keys.forEach(k => { const f = featureByKey(k); state.discarded[k] = f ? f.cat : ''; delete state.marked[k]; });
+  if (popupKey && keys.includes(popupKey)) map.closePopup();
+  save();
+  keys.length > 20 ? renderFeatures() : keys.forEach(refreshFeature);
+  renderCats(); updateLists();
+  if (keys.length > 1 || !Draw.mode) toast(`${keys.length} elemento(s) descartado(s). Deshaz con Ctrl+Z o reactiva la categoría para recuperarlos.`);
+}
+function restoreDiscarded(cat) {
+  const keys = Object.keys(state.discarded).filter(k => cat == null || state.discarded[k] === cat);
+  if (!keys.length) return 0;
+  keys.forEach(k => delete state.discarded[k]);
+  return keys.length;
+}
+
+/* ---------- Popups ---------- */
+function coordsBlock(lat, lon) {
+  return `<div class="coords" title="Coordenadas">${Coord.all(lat, lon).map(([l, v]) => `<div><b>${l}</b> ${esc(v)}</div>`).join('')}</div>`;
+}
+function extLinks(lat, lon, f) {
+  const z = 18, ll = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+  const links = [];
+  if (f && f.src === 'osm') { const [, t, id] = f.key.split('/'); links.push(`<a href="https://www.openstreetmap.org/${t}/${id}" target="_blank" rel="noopener">OSM</a>`); }
+  if (f && f.tags && f.tags.url) links.push(`<a href="${esc(f.tags.url)}" target="_blank" rel="noopener">Artículo</a>`);
+  const web = f && f.tags && (f.tags.website || f.tags['contact:website']);
+  if (web && /^https?:/i.test(web)) links.push(`<a href="${esc(web)}" target="_blank" rel="noopener">Web</a>`);
+  const cam = f && f.tags && (f.tags['contact:webcam'] || f.tags.webcam);
+  if (cam && /^https?:/i.test(cam)) links.push(`<a href="${esc(cam)}" target="_blank" rel="noopener">📷 Webcam</a>`);
+  links.push(`<a href="https://www.google.com/maps/search/?api=1&query=${ll}" target="_blank" rel="noopener">Google Maps</a>`);
+  links.push(`<a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${ll}" target="_blank" rel="noopener">Street View</a>`);
+  links.push(`<a href="https://www.mapillary.com/app/?lat=${lat}&lng=${lon}&z=${z}" target="_blank" rel="noopener">Mapillary</a>`);
+  return `<div class="links">${links.join('')}</div>`;
+}
+function qualityHtml(f) {
+  if (!f.q && !state.verified[f.key]) return '';
+  const v = state.verified[f.key];
+  return `<details class="qbox" ${confLevel(f) === 'baja' || confLevel(f) === 'closed' ? 'open' : ''}><summary>${confBadge(f, true)} <span class="hint">¿por qué?</span></summary>
+    <ul class="qlist">${(f.q?.why || []).map(([c, t]) => `<li class="${c}">${esc(t)}</li>`).join('')}${v ? `<li class="ok">Confirmado por ti el ${esc(v.slice(0, 10))}</li>` : ''}</ul>
+    <div class="hint">Verifica con Street View / Mapillary y confírmalo:</div>
+    <button class="btn sm ${v ? '' : 'primary'}" data-act="verify" data-key="${esc(f.key)}" style="margin-top:4px">${v ? '✗ Quitar confirmación' : '✓ Lo he comprobado: es correcto'}</button></details>`;
+}
+function featurePopupHtml(f) {
+  const [lat, lon] = featLatLng(f);
+  const tags = Object.entries(f.tags || {}).filter(([k]) => k !== 'url');
+  const marked = isMarked(f.key);
+  let len = '';
+  if (f.geom.type !== 'Point') {
+    let d = 0; for (let i = 1; i < f.geom.coords.length; i++) d += L.latLng(f.geom.coords[i - 1]).distanceTo(f.geom.coords[i]);
+    len = ` · ${Units.dist(d)}`;
+  }
+  return `<div class="pop">
+    <h4>${esc(f.name || '(sin nombre)')}</h4>
+    <div class="meta">${icoHtml(f)} ${esc(catName(f.cat))}${f.type ? ' › <b>' + esc(typeLabel(...f.type.split('='))) + '</b> <code>' + esc(f.type) + '</code>' : ''}${len} · ${esc(f.src || '')}</div>
+    ${qualityHtml(f)}
+    ${coordsBlock(lat, lon)}
+    ${tags.length ? `<div class="tags"><table>${tags.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table></div>` : ''}
+    ${extLinks(lat, lon, f)}
+    <div class="acts">
+      <button class="btn sm ${marked ? '' : 'primary'}" data-act="mark" data-key="${esc(f.key)}">${marked ? '☐ Desmarcar' : '☑ Marcar'}</button>
+      <button class="btn sm danger" data-act="discard" data-key="${esc(f.key)}" title="Quitar del mapa">🗑 Descartar</button>
+      ${f.geom.type === 'Point' ? `<button class="btn sm" data-act="icon-edit" data-key="${esc(f.key)}">🎨 Icono</button>` : ''}
+      <button class="btn sm" data-act="copy" data-text="${esc(Coord.format(lat, lon))}">Copiar coord.</button>
+      ${state.custom[f.key] ? `<button class="btn sm" data-act="rename" data-key="${esc(f.key)}">✎ Renombrar</button><button class="btn sm danger" data-act="delete-custom" data-key="${esc(f.key)}">Eliminar</button>` : ''}
+    </div></div>`;
+}
+let popupKey = null;
+function openFeaturePopup(key, latlng) {
+  const f = featureByKey(key); if (!f) return;
+  popupKey = key;
+  const ll = latlng || L.latLng(featLatLng(f));
+  L.popup({ maxWidth: 340, autoPanPadding: [30, 30] }).setLatLng(ll).setContent(featurePopupHtml(f)).openOn(map);
+}
+map.on('popupclose', () => { popupKey = null; });
+function refreshPopup() {
+  if (!popupKey) return;
+  const p = map._popup; const f = featureByKey(popupKey);
+  if (p && f) p.setContent(featurePopupHtml(f));
+}
+
+map.on('contextmenu', e => {
+  if (Draw.mode) return;
+  const { lat, lng } = e.latlng;
+  L.popup({ maxWidth: 340 }).setLatLng(e.latlng).setContent(`<div class="pop">
+    <h4>Ubicación</h4>${coordsBlock(lat, lng)}${extLinks(lat, lng)}
+    <div class="acts">
+      <button class="btn sm primary" data-act="add-point-at" data-lat="${lat}" data-lon="${lng}">📍 Añadir marcador</button>
+      <button class="btn sm" data-act="copy" data-text="${esc(Coord.format(lat, lng))}">Copiar</button>
+      <button class="btn sm" data-act="region-around" data-lat="${lat}" data-lon="${lng}">◯ Región 1 km</button>
+    </div></div>`).openOn(map);
+});
+
+/* =========================================================================
+   Herramientas de dibujo (región, marcar área, punto, medir)
+   ========================================================================= */
+const Draw = {
+  mode: null, tool: null, pts: [], cb: null,
+  start(tool) {
+    this.cancel();
+    const shape = { 'region-rect': 'rect', 'region-poly': 'poly', 'region-circle': 'circle', 'mark-area': 'poly', 'unmark-area': 'poly', point: 'point', measure: 'measure', discard: 'discard' }[tool];
+    this.tool = tool; this.mode = shape; this.pts = [];
+    $('#map').classList.add('drawing');
+    map.doubleClickZoom.disable();
+    $$('[data-act="tool"]').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
+    this.hint();
+    map.closePopup();
+    if (innerWidth <= 860) $('#sidebar').classList.remove('open');
+  },
+  hint(extra = '') {
+    const texts = {
+      rect: 'Haz clic en dos esquinas opuestas del rectángulo.',
+      circle: 'Haz clic en el centro y después en el borde del círculo.',
+      poly: 'Haz clic para añadir vértices. Doble clic, clic en el primer vértice o «Terminar» para cerrar.',
+      point: 'Haz clic en el mapa para colocar el marcador.',
+      measure: 'Haz clic para añadir puntos. «Terminar» deja la medida en el mapa.',
+      discard: '🗑 Modo descartar: pulsa los elementos que quieras quitar del mapa. Esc para salir.'
+    };
+    const pre = { 'mark-area': '☑ Marcar área: ', 'unmark-area': '☐ Desmarcar área: ' }[this.tool] || '';
+    $('#drawText').innerHTML = esc(pre + texts[this.mode]) + (extra ? ` <b>${esc(extra)}</b>` : '');
+    $('#drawFinish').style.display = (this.mode === 'poly' || this.mode === 'measure' || this.mode === 'discard') ? '' : 'none';
+    $('#drawHint').hidden = false;
+  },
+  click(ll) {
+    const p = [ll.lat, ll.lng];
+    switch (this.mode) {
+      case 'discard': return;
+      case 'point': return this.finish({ type: 'point', coords: p });
+      case 'rect':
+        this.pts.push(p);
+        if (this.pts.length === 2) { const b = L.latLngBounds(this.pts); return this.finish({ type: 'rect', bounds: [[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]] }); }
+        break;
+      case 'circle':
+        this.pts.push(p);
+        if (this.pts.length === 2) return this.finish({ type: 'circle', center: this.pts[0], radius: L.latLng(this.pts[0]).distanceTo(this.pts[1]) });
+        break;
+      case 'poly':
+        if (this.pts.length >= 3 && map.latLngToContainerPoint(this.pts[0]).distanceTo(map.latLngToContainerPoint(ll)) < 12) return this.complete();
+        this.pts.push(p); break;
+      case 'measure': this.pts.push(p); break;
+    }
+    this.preview(ll);
+  },
+  preview(cur) {
+    drawLayer.clearLayers();
+    const pts = cur ? [...this.pts, [cur.lat, cur.lng]] : this.pts;
+    const st = { color: '#38bdf8', weight: 2, dashArray: '6 4', fillOpacity: .1, interactive: false };
+    if (this.mode === 'rect' && this.pts.length === 1 && cur) L.rectangle(L.latLngBounds(pts), st).addTo(drawLayer);
+    if (this.mode === 'circle' && this.pts.length === 1 && cur) {
+      const r = L.latLng(this.pts[0]).distanceTo(cur);
+      L.circle(this.pts[0], { ...st, radius: r }).addTo(drawLayer);
+      this.hint('r = ' + Units.dist(r));
+    }
+    if (this.mode === 'poly' && pts.length) L.polygon(pts, st).addTo(drawLayer);
+    if (this.mode === 'measure' && pts.length) {
+      L.polyline(pts, { ...st, dashArray: null }).addTo(drawLayer);
+      let d = 0; for (let i = 1; i < pts.length; i++) d += L.latLng(pts[i - 1]).distanceTo(pts[i]);
+      let extra = 'Distancia: ' + Units.dist(d);
+      if (pts.length >= 3) extra += ' · Área (cerrada): ' + Units.area(ringArea(pts));
+      if (pts.length >= 2) {
+        const a = pts[pts.length - 2], b = pts[pts.length - 1];
+        extra += ' · Rumbo: ' + bearing(a, b).toFixed(1) + '°';
+      }
+      this.hint(extra);
+    }
+    this.pts.forEach(q => L.circleMarker(q, { radius: 4, color: '#38bdf8', fillColor: '#fff', fillOpacity: 1, weight: 2, interactive: false }).addTo(drawLayer));
+  },
+  complete() {
+    if (this.mode === 'discard') return this.cancel();
+    if (this.mode === 'poly') {
+      const pts = this.pts.filter((p, i, a) => i === 0 || map.latLngToContainerPoint(p).distanceTo(map.latLngToContainerPoint(a[i - 1])) > 3);
+      if (pts.length < 3) { toast('Se necesitan al menos 3 vértices', true); return; }
+      return this.finish({ type: 'poly', coords: pts });
+    }
+    if (this.mode === 'measure') {
+      const pts = this.pts;
+      if (pts.length >= 2) {
+        let d = 0; for (let i = 1; i < pts.length; i++) d += L.latLng(pts[i - 1]).distanceTo(pts[i]);
+        L.polyline(pts, { color: '#38bdf8', weight: 3 }).addTo(measureLayer);
+        pts.forEach(q => L.circleMarker(q, { radius: 4, color: '#38bdf8', fillColor: '#fff', fillOpacity: 1, weight: 2 }).addTo(measureLayer));
+        L.marker(pts[pts.length - 1], { icon: L.divIcon({ className: '', html: `<div class="measure-label">${esc(Units.dist(d))} · clic para borrar</div>`, iconAnchor: [-8, 10] }) })
+          .on('click', () => measureLayer.clearLayers()).addTo(measureLayer);
+      }
+      this.cancel();
+    }
+  },
+  finish(geom) { const tool = this.tool; this.cancel(); onDrawn(tool, geom); },
+  cancel() {
+    this.mode = null; this.tool = null; this.pts = [];
+    drawLayer.clearLayers();
+    $('#map').classList.remove('drawing');
+    $('#drawHint').hidden = true;
+    map.doubleClickZoom.enable();
+    $$('[data-act="tool"]').forEach(b => b.classList.remove('active'));
+  }
+};
+function bearing(a, b) {
+  const [la1, lo1] = a.map(x => x * D2R), [la2, lo2] = b.map(x => x * D2R);
+  const y = Math.sin(lo2 - lo1) * Math.cos(la2), x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(lo2 - lo1);
+  return (Math.atan2(y, x) * R2D + 360) % 360;
+}
+map.on('click', e => {
+  if (Draw.mode) return Draw.click(e.latlng);
+  if (map.hasLayer(OVERLAYS[CATASTRO_LAYER])) {
+    if (map.getZoom() < 15) return toast('Acerca el mapa (zoom 15+) para consultar el Catastro');
+    catastroInfo(e.latlng);
+  }
+});
+map.on('dblclick', () => { if (Draw.mode === 'poly' || Draw.mode === 'measure') Draw.complete(); });
+
+function onDrawn(tool, geom) {
+  if (tool.startsWith('region-')) return createRegion(geom);
+  if (tool === 'point') return addCustomPoint(geom.coords);
+  if (tool === 'mark-area' || tool === 'unmark-area') {
+    const on = tool === 'mark-area';
+    const pool = [...activeFeatures().filter(shouldShow), ...Object.values(state.custom).filter(shouldShow), ...(on ? [] : Object.values(state.marked))];
+    const keys = [...new Set(pool.filter(f => {
+      const cs = f.geom.type === 'Point' ? [f.geom.coords] : f.geom.coords;
+      return cs.some(([la, lo]) => pointInPoly(la, lo, geom.coords));
+    }).map(f => f.key))];
+    if (!keys.length) return toast('No hay elementos visibles dentro del área');
+    bulkMark(keys, on);
+  }
+}
+
+/* =========================================================================
+   Regiones
+   ========================================================================= */
+const REGION_COLORS = ['#38bdf8', '#f472b6', '#a3e635', '#fb923c', '#c084fc', '#facc15', '#2dd4bf', '#f87171'];
+function regionPolygon(r) { // [[lat,lon]] para área / point-in-poly / exportación
+  const g = r.geom;
+  if (g.type === 'rect') { const [[s, w], [n, e]] = g.bounds; return [[s, w], [n, w], [n, e], [s, e]]; }
+  if (g.type === 'poly') return g.coords;
+  const pts = [], c = L.latLng(g.center);
+  for (let i = 0; i < 48; i++) {
+    const brg = i / 48 * 2 * Math.PI, dR = g.radius / 6371008.8, la1 = c.lat * D2R, lo1 = c.lng * D2R;
+    const la2 = Math.asin(Math.sin(la1) * Math.cos(dR) + Math.cos(la1) * Math.sin(dR) * Math.cos(brg));
+    const lo2 = lo1 + Math.atan2(Math.sin(brg) * Math.sin(dR) * Math.cos(la1), Math.cos(dR) - Math.sin(la1) * Math.sin(la2));
+    pts.push([la2 * R2D, lo2 * R2D]);
+  }
+  return pts;
+}
+const regionArea = r => r.geom.type === 'circle' ? Math.PI * r.geom.radius ** 2 : ringArea(regionPolygon(r));
+function regionBounds(r) { return L.latLngBounds(regionPolygon(r)); }
+function inRegion(lat, lon, r) {
+  const g = r.geom;
+  if (g.type === 'rect') return L.latLngBounds(g.bounds).contains([lat, lon]);
+  if (g.type === 'circle') return L.latLng(g.center).distanceTo([lat, lon]) <= g.radius;
+  return pointInPoly(lat, lon, g.coords);
+}
+function createRegion(geom, name) {
+  const n = state.regions.length + 1;
+  name = name || prompt('Nombre de la región:', `Región ${n}`);
+  if (name === null) return;
+  History.push(`crear región «${name || `Región ${n}`}»`);
+  const r = { id: uid(), name: name || `Región ${n}`, color: REGION_COLORS[(n - 1) % REGION_COLORS.length], geom, created: new Date().toISOString() };
+  state.regions.push(r);
+  setActiveRegion(r.id, false, false);
+  save(); renderRegions();
+  showTab('regions');
+  if (S.autoLoad) loadRegion(r.id);
+}
+function regionFromView() {
+  const b = map.getBounds();
+  createRegion({ type: 'rect', bounds: [[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]] });
+}
+function setActiveRegion(id, fit = true, autoload = true) {
+  state.activeRegion = id;
+  const r = state.regions.find(x => x.id === id);
+  if (r && fit) flyToBounds(regionBounds(r));
+  save(); renderRegions(); renderFeatures(); updateLists(); renderCats();
+  if (r && autoload && S.autoLoad && !regionData[id] && !loadCtl) loadRegion(id); // los datos solo viven en memoria
+}
+function deleteRegion(id) {
+  const r = state.regions.find(x => x.id === id); if (!r) return;
+  if (!confirm(`¿Eliminar la región «${r.name}»? Los elementos marcados se conservan.`)) return;
+  History.push(`eliminar región «${r.name}»`);
+  state.regions = state.regions.filter(x => x.id !== id);
+  delete regionData[id];
+  if (state.activeRegion === id) state.activeRegion = state.regions[0]?.id || null;
+  save(); renderRegions(); renderFeatures(); updateLists();
+}
+function renderRegions() {
+  regionsLayer.clearLayers();
+  if (state.showRegions) state.regions.forEach(r => {
+    const active = r.id === state.activeRegion;
+    const st = { renderer: regionRenderer, pane: 'regions', className: 'region-shape', color: r.color, weight: active ? 4 : 3, dashArray: active ? null : '6 5', fillOpacity: active ? 0.06 : 0.02 };
+    const g = r.geom;
+    const lyr = g.type === 'rect' ? L.rectangle(g.bounds, st) : g.type === 'circle' ? L.circle(g.center, { ...st, radius: g.radius }) : L.polygon(g.coords, st);
+    lyr.bindTooltip(esc(r.name), { sticky: true });
+    lyr.on('click', () => { if (!Draw.mode && state.activeRegion !== r.id) setActiveRegion(r.id, false); });
+    regionsLayer.addLayer(lyr);
+  });
+  const el = $('#regionList');
+  if (!state.regions.length) { el.innerHTML = '<div class="empty">Aún no hay regiones.<br>Usa ▭ Región, ⬠ Polígono, ◯ Radio o ⛶ Vista.</div>'; return; }
+  el.innerHTML = state.regions.map(r => {
+    const data = regionData[r.id];
+    const info = data ? `${data.length} elementos` : (r.loadedAt ? 'Sin cargar en esta sesión' : 'Sin cargar');
+    return `<div class="item ${r.id === state.activeRegion ? 'active' : ''}">
+      <span class="dot" style="background:${r.color}"></span>
+      <div class="grow" data-act="region-activate" data-id="${r.id}"><div class="name">${esc(r.name)}</div><div class="sub">${esc(Units.area(regionArea(r)))} · ${info}</div></div>
+      <button class="btn sm" data-act="region-load" data-id="${r.id}" title="Cargar elementos">⟳</button>
+      <button class="btn sm" data-act="region-rename" data-id="${r.id}" title="Renombrar">✎</button>
+      <button class="btn sm danger" data-act="region-delete" data-id="${r.id}" title="Eliminar">✕</button>
+    </div>`;
+  }).join('');
+}
+
+/* =========================================================================
+   Carga de datos: Overpass (OSM) y Wikipedia
+   ========================================================================= */
+let loadCtl = null;
+function overpassArea(r) {
+  const g = r.geom;
+  if (g.type === 'rect') { const [[s, w], [n, e]] = g.bounds; return `(${s},${w},${n},${e})`; }
+  if (g.type === 'circle') return `(around:${Math.round(g.radius)},${g.center[0]},${g.center[1]})`;
+  return `(poly:"${g.coords.map(([a, b]) => `${a.toFixed(6)} ${b.toFixed(6)}`).join(' ')}")`;
+}
+function buildQuery(r, cats) {
+  // Cada categoría lleva su propio bloque y límite, para que las categorías numerosas
+  // (comercios, semáforos…) no dejen fuera a las escasas (comisarías, hospitales…).
+  const area = overpassArea(r);
+  let q = `[out:json][timeout:${S.timeout}];\n`;
+  cats.forEach(c => {
+    if (!c.eff.length) return;
+    const stmts = c.eff.map(alt => `  ${c.line ? 'way' : 'nwr'}${alt.map(condQL).join('')}${area};`);
+    q += `/* ${c.id} */\n(\n${stmts.join('\n')}\n);\nout meta ${c.line ? 'geom' : 'center'} qt ${S.maxResults};\n`;
+  });
+  return q;
+}
+async function fetchOverpass(q, signal) {
+  const servers = [S.overpass, ...$$('#setOverpass option').map(o => o.value).filter(v => v !== S.overpass)];
+  let lastErr;
+  for (const url of servers) {
+    try {
+      $('#loadingSub').textContent = new URL(url).host;
+      const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal });
+      if (!res.ok) {
+        const txt = (await res.text().catch(() => '')).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+        const det = (txt.match(/Error\s*:?\s*(.{0,180})/) || [])[1];
+        const err = new Error(`HTTP ${res.status} en ${new URL(url).host}${det ? ': ' + det : ''}`);
+        if (res.status === 400) throw Object.assign(err, { fatal: true }); // consulta mal formada: no tiene sentido probar otro servidor
+        throw err;
+      }
+      const json = await res.json();
+      if (json.remark && /runtime error|timed out|out of memory/i.test(json.remark) && !(json.elements || []).length) throw new Error(json.remark);
+      return json;
+    } catch (e) {
+      if (e.name === 'AbortError' || e.fatal) throw e;
+      lastErr = e; console.warn('Overpass falló', url, e);
+    }
+  }
+  throw lastErr || new Error('Overpass no disponible');
+}
+function osmToFeature(el, cats) {
+  const t = el.tags || {};
+  const c = cats.find(c => matchCat(c, t)); if (!c) return null;
+  let geom;
+  if (el.type === 'node') geom = { type: 'Point', coords: [el.lat, el.lon] };
+  else if (c.line && el.geometry) geom = { type: 'LineString', coords: el.geometry.filter(Boolean).map(p => [p.lat, p.lon]) };
+  else if (el.center) geom = { type: 'Point', coords: [el.center.lat, el.center.lon] };
+  else return null;
+  const name = t.name || t['name:es'] || t.brand || t.operator || t.ref || (t['surveillance:type'] ? 'Cámara ' + t['surveillance:type'] : '');
+  const alt = matchedAlt(c, t), primary = alt && alt[0].k;
+  return { key: `osm/${el.type}/${el.id}`, cat: c.id, name, geom, tags: t, src: 'osm', type: primary ? `${primary}=${t[primary]}` : '',
+    edited: el.timestamp || '', q: assessQuality(t, c.id, primary, el.timestamp) };
+}
+async function fetchWiki(r, signal) {
+  const b = regionBounds(r), c = b.getCenter();
+  const radius = Math.min(10000, Math.max(10, Math.round(c.distanceTo(b.getNorthEast()))));
+  const lang = (S.wikiLang || 'es').replace(/[^a-z-]/gi, '');
+  const url = `https://${lang}.wikipedia.org/w/api.php?action=query&list=geosearch&gscoord=${c.lat}|${c.lng}&gsradius=${radius}&gslimit=500&format=json&origin=*`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error('Wikipedia HTTP ' + res.status);
+  const j = await res.json();
+  return (j.query?.geosearch || []).filter(g => inRegion(g.lat, g.lon, r)).map(g => ({
+    key: `wiki/${lang}/${g.pageid}`, cat: 'wiki', name: g.title, src: 'wikipedia',
+    geom: { type: 'Point', coords: [g.lat, g.lon] }, tags: { wikipedia: `${lang}:${g.title}`, url: `https://${lang}.wikipedia.org/?curid=${g.pageid}` }
+  }));
+}
+const regionLoadedCats = {}; // regionId → Set de categorías ya descargadas (solo memoria)
+const regionLoadedTypes = {}; // regionId → {categoría → Set de tipos ya descargados}
+const selTypeIds = c => state.catTypes[c.id] || c.types.map(t => t.id);
+// Descarga las categorías activadas que aún no se han cargado en la región activa y las añade a lo existente
+function loadMissingCats() {
+  const id = state.activeRegion;
+  if (!id || !regionData[id]) return;
+  const done = regionLoadedCats[id] || new Set();
+  const missing = state.selCats.filter(c => !done.has(c) && (CAT[c]?.alts || c === 'wiki'));
+  if (missing.length) loadRegion(id, missing);
+}
+async function loadRegion(id, only) {
+  const r = state.regions.find(x => x.id === id);
+  if (!r) return toast('Selecciona o crea una región primero', true);
+  const want = only || state.selCats;
+  const cats = CATS.filter(c => want.includes(c.id) && c.eff.length);
+  const useWiki = want.includes('wiki');
+  if (!cats.length && !useWiki) { showTab('layers'); return toast('Selecciona al menos una categoría en «Capas»', true); }
+  const km2 = regionArea(r) / 1e6;
+  if (!only && km2 > S.maxArea && !confirm(`La región mide ${km2.toFixed(0)} km². Las consultas grandes pueden tardar o fallar. ¿Continuar?`)) return;
+  if (state.activeRegion !== id) setActiveRegion(id, false, false);
+  loadCtl?.abort(); loadCtl = new AbortController();
+  $('#loadingText').textContent = only ? `Añadiendo ${cats.map(c => '«' + c.name + '»').concat(useWiki ? ['«Wikipedia»'] : []).join(', ')} a «${r.name}»…` : `Consultando fuentes abiertas para «${r.name}»…`;
+  $('#loading').hidden = false;
+  const prev = only ? (regionData[id] || []) : [];
+  const feats = [...prev], seen = new Set(prev.map(f => f.key)), errors = [];
+  try {
+    const jobs = [];
+    if (cats.length) jobs.push(fetchOverpass(buildQuery(r, cats), loadCtl.signal).then(j => {
+      (j.elements || []).forEach(el => {
+        const f = osmToFeature(el, el.geometry ? cats.filter(c => c.line) : cats.filter(c => !c.line));
+        if (f && !seen.has(f.key)) { seen.add(f.key); feats.push(f); }
+      });
+      if (j.remark && /runtime error|timed out|out of memory/i.test(j.remark)) errors.push('Overpass devolvió resultados INCOMPLETOS (' + j.remark.replace(/\s+/g, ' ').slice(0, 120) + '). Reduce la región o sube el timeout.');
+      const per = {}; feats.forEach(f => per[f.cat] = (per[f.cat] || 0) + 1);
+      const full = cats.filter(c => (per[c.id] || 0) >= S.maxResults).map(c => '«' + c.name + '»');
+      if (full.length) errors.push(`Límite de ${S.maxResults} alcanzado en ${full.join(', ')}: puede haber más. Reduce la región o sube el límite en ⚙.`);
+    }).catch(e => { if (e.name === 'AbortError') throw e; errors.push('OSM/Overpass: ' + e.message); }));
+    if (useWiki) jobs.push(fetchWiki(r, loadCtl.signal).then(ws => ws.forEach(f => { if (!seen.has(f.key)) { seen.add(f.key); feats.push(f); } }))
+      .catch(e => { if (e.name === 'AbortError') throw e; errors.push('Wikipedia: ' + e.message); }));
+    await Promise.all(jobs);
+    regionData[id] = feats;
+    const lt = regionLoadedTypes[id] = only ? (regionLoadedTypes[id] || {}) : {};
+    cats.forEach(c => { lt[c.id] = new Set([...(lt[c.id] || []), ...selTypeIds(c)]); });
+    regionLoadedCats[id] = new Set([...(only ? regionLoadedCats[id] || [] : []), ...cats.map(c => c.id), ...(useWiki ? ['wiki'] : [])]);
+    r.loadedAt = new Date().toISOString();
+    save(); renderRegions(); renderFeatures(); updateLists(); renderCats();
+    toast(only ? `${feats.length - prev.length} elementos añadidos a «${r.name}»` : `${feats.length} elementos cargados en «${r.name}»`);
+    errors.forEach(e => toast(e, true, 7000));
+    if (feats.length && !only) showTab('results');
+  } catch (e) {
+    if (e.name === 'AbortError') toast('Carga cancelada'); else toast('Error: ' + e.message, true, 7000);
+  } finally {
+    $('#loading').hidden = true; loadCtl = null;
+  }
+}
+
+/* =========================================================================
+   Marcadores propios
+   ========================================================================= */
+function addCustomPoint(coords, name, extraTags) {
+  name = name ?? prompt('Nombre del marcador:', 'Punto ' + (Object.values(state.custom).filter(f => f.cat === 'user').length + 1));
+  if (name === null) return;
+  History.push(`añadir marcador «${name || 'Punto'}»`);
+  const f = { key: 'user/' + uid(), cat: 'user', name: name || 'Punto', geom: { type: 'Point', coords }, tags: { ...(extraTags || {}), created: new Date().toISOString() }, src: 'usuario' };
+  state.custom[f.key] = f; state.marked[f.key] = f;
+  save(); refreshFeature(f.key); updateLists();
+  toast('Marcador añadido');
+}
+
+/* =========================================================================
+   Listas laterales
+   ========================================================================= */
+function updateBadges() {
+  $('#bdMarked').textContent = Object.keys(state.marked).length;
+  $('#bdResults').textContent = activeFeatures().length;
+}
+function itemHtml(f, withCheck = true) {
+  const m = isMarked(f.key);
+  return `<div class="item">
+    ${withCheck ? `<input type="checkbox" data-act="mark" data-key="${esc(f.key)}" ${m ? 'checked' : ''} title="Marcar">` : ''}
+    ${icoHtml(f)}
+    <div class="grow" data-act="zoom-feature" data-key="${esc(f.key)}"><div class="name">${esc(f.name || '(sin nombre)')}</div><div class="sub">${confBadge(f)} ${esc(f.type ? typeLabel(...f.type.split('=')) : catName(f.cat))}${f.type ? ' · ' + esc(catName(f.cat)) : ''}</div></div>
+    ${withCheck ? `<button class="btn sm" data-act="discard" data-key="${esc(f.key)}" title="Descartar del mapa">🗑</button>` : `<button class="btn sm" data-act="mark" data-key="${esc(f.key)}" title="Desmarcar">✕</button>`}
+  </div>`;
+}
+function filteredResults() {
+  const q = $('#resFilter').value.trim().toLowerCase(), c = $('#resCat').value;
+  const sort = $('#resSort').value;
+  const out = activeFeatures().filter(f => (!c || f.cat === c) && shouldShow(f) && !isMarked(f.key) || (isMarked(f.key) && (!c || f.cat === c)))
+    .filter(f => !isDiscarded(f.key) && (!q || (f.name || '').toLowerCase().includes(q) || Object.entries(f.tags || {}).some(([k, v]) => (k + '=' + v).toLowerCase().includes(q))));
+  const cmp = { conf: (a, b) => (b.q?.s ?? -1) - (a.q?.s ?? -1), type: (a, b) => (a.type || '').localeCompare(b.type || '') }[sort];
+  return out.sort(cmp || ((a, b) => (a.name || '\uffff').localeCompare(b.name || '\uffff', 'es')));
+}
+function updateLists() {
+  updateBadges();
+  // Resultados
+  const r = state.regions.find(x => x.id === state.activeRegion);
+  const all = activeFeatures();
+  const cats = [...new Set(all.map(f => f.cat))];
+  const sel = $('#resCat').value;
+  $('#resCat').innerHTML = `<option value="">Todas</option>` + cats.map(c => `<option value="${c}" ${c === sel ? 'selected' : ''}>${esc(catName(c))}</option>`).join('');
+  const list = filteredResults();
+  const LIM = 400;
+  const hiddenQ = all.filter(f => f.src === 'osm' && catVisible(f.cat) && !isDiscarded(f.key) && !isMarked(f.key) && !passQuality(f)).length;
+  $('#resInfo').textContent = r ? `${list.length} de ${all.length}${hiddenQ ? ` · ${hiddenQ} ocultos por fiabilidad` : ''}` : '';
+  $('#resList').innerHTML = !r ? '<div class="empty">Selecciona una región.</div>'
+    : !regionData[r.id] ? `<div class="empty">La región «${esc(r.name)}» no tiene datos cargados.<br><br><button class="btn sm primary" data-act="load-active">⟳ Cargar ahora</button></div>`
+    : !list.length ? '<div class="empty">No hay elementos con este filtro.</div>'
+    : list.slice(0, LIM).map(f => itemHtml(f)).join('') + (list.length > LIM ? `<div class="empty">Mostrando ${LIM} de ${list.length}. Usa el filtro para acotar.</div>` : '');
+  // Marcados
+  const mq = $('#mkFilter').value.trim().toLowerCase();
+  const mk = Object.values(state.marked).filter(f => !mq || (f.name || '').toLowerCase().includes(mq) || catName(f.cat).toLowerCase().includes(mq));
+  $('#mkList').innerHTML = mk.length ? mk.map(f => itemHtml(f, false)).join('') : '<div class="empty">No hay elementos marcados.<br>Haz clic en un elemento del mapa y pulsa «Marcar», o usa ☑ Marcar área.</div>';
+  refreshPopup();
+}
+let expandedCat = null;
+function renderCats() {
+  const counts = {}; activeFeatures().forEach(f => counts[f.cat] = (counts[f.cat] || 0) + 1);
+  const disc = {}; Object.values(state.discarded).forEach(c => disc[c] = (disc[c] || 0) + 1);
+  const typeCounts = {}; activeFeatures().forEach(f => { if (f.type) typeCounts[f.cat + '|' + f.type] = (typeCounts[f.cat + '|' + f.type] || 0) + 1; });
+  const row = c => {
+    const sel = state.catTypes[c.id], nT = c.types?.length || 0, nSel = sel ? sel.length : nT;
+    const typesUi = expandedCat === c.id && nT ? `<div class="types">
+        <div class="row"><button class="btn sm xs" data-act="types-all" data-id="${c.id}">Todos</button><button class="btn sm xs" data-act="types-none" data-id="${c.id}">Ninguno</button>${c.custom ? `<button class="btn sm xs" data-act="ccat-edit" data-id="${c.id}">✎ Editar filtro</button>` : ''}</div>
+        ${c.types.map(t => `<label title="${esc(t.code)}"><input type="checkbox" data-act="type-toggle" data-cat="${c.id}" data-type="${esc(t.id)}" ${!sel || sel.includes(t.id) ? 'checked' : ''}> ${esc(t.label)}<small>${t.k ? typeCounts[c.id + '|' + t.k + '=' + t.v] || '' : ''}</small></label>`).join('')}
+      </div>` : '';
+    return `<div class="cat-row"><label class="cat">
+      <input type="checkbox" data-act="cat-toggle" data-id="${c.id}" ${state.selCats.includes(c.id) ? 'checked' : ''}>
+      <span class="ico ${c.line ? 'line' : ''}" style="--c:${state.catIcons[c.id]?.color || c.color}"><i class="${iconClass(state.catIcons[c.id]?.icon || CAT_ICONS[c.id])}"></i></span>${esc(c.name)}
+      <span class="cnt">${counts[c.id] ? counts[c.id] - (disc[c.id] || 0) : ''}${disc[c.id] ? ` <span title="descartados">(−${disc[c.id]})</span>` : ''}</span></label>
+      ${nT > 1 || c.custom ? `<button class="btn sm xs" data-act="cat-expand" data-id="${c.id}" title="Elegir tipos concretos">${nSel < nT ? nSel + '/' + nT : 'tipos'} ${expandedCat === c.id ? '▴' : '▾'}</button>` : ''}
+    </div>${typesUi}`;
+  };
+  const nd = Object.keys(state.discarded).length;
+  $('#discardInfo').innerHTML = nd ? `<span class="hint">${nd} elemento(s) descartado(s)</span><button class="btn sm" data-act="restore-discarded">↺ Recuperar todos</button>` : '';
+  $('#catList').innerHTML = CATS.filter(c => !c.custom).map(row).join('');
+  $('#customCatList').innerHTML = CATS.filter(c => c.custom).map(row).join('') || '<p class="hint">Crea una categoría con cualquier etiqueta de OpenStreetMap (p. ej. «amenity=atm &amp; operator~santander»).</p>';
+  $('#optHideClosed').checked = state.hideClosed;
+  $('#optMinConf').value = state.minConf;
+  $('#srcList').innerHTML = row(CAT.wiki);
+  $('#optShowMarkedOnly').checked = state.showMarkedOnly;
+  $('#optShowRegions').checked = state.showRegions;
+}
+function showTab(t) {
+  state.tab = t;
+  $$('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+  $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'pnl-' + t));
+  save();
+}
+function flyToBounds(b) { if (S.fly) map.flyToBounds(b, { padding: [30, 30], maxZoom: 18, duration: 1.2 }); else map.fitBounds(b, { padding: [30, 30], maxZoom: 18 }); }
+function flyTo(ll, z) { if (S.fly) map.flyTo(ll, z, { duration: 1.2 }); else map.setView(ll, z); }
+
+/* =========================================================================
+   Búsqueda (coordenadas / Nominatim)
+   ========================================================================= */
+let searchResults = [];
+function showTarget(lat, lon, label) {
+  tempLayer.clearLayers();
+  L.marker([lat, lon], { icon: L.divIcon({ className: '', html: '<div class="ctr-icon">⌖</div>', iconSize: [26, 26], iconAnchor: [13, 13] }) })
+    .addTo(tempLayer)
+    .bindPopup(`<div class="pop"><h4>${esc(label || 'Ubicación')}</h4>${coordsBlock(lat, lon)}${extLinks(lat, lon)}
+      <div class="acts"><button class="btn sm primary" data-act="add-point-at" data-lat="${lat}" data-lon="${lon}">📍 Añadir marcador</button>
+      <button class="btn sm" data-act="region-around" data-lat="${lat}" data-lon="${lon}">◯ Región 1 km</button></div></div>`);
+  flyTo([lat, lon], Math.max(map.getZoom(), 15));
+  setTimeout(() => tempLayer.eachLayer(l => l.openPopup()), S.fly ? 1300 : 50);
+}
+async function doSearch() {
+  const q = $('#search').value.trim(); if (!q) return;
+  const ll = Coord.parse(q);
+  if (ll) { $('#searchResults').style.display = 'none'; return showTarget(ll.lat, ll.lon, q); }
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=es&q=${encodeURIComponent(q)}`);
+    searchResults = await res.json();
+    const box = $('#searchResults');
+    box.innerHTML = searchResults.length ? searchResults.map((r, i) => `<div class="sr">
+      <div class="t" data-act="search-go" data-i="${i}">${esc(r.name || r.display_name.split(',')[0])}<small>${esc(r.display_name)}</small></div>
+      <button class="btn sm" data-act="search-region" data-i="${i}" title="Crear región con este lugar">▭ Región</button></div>`).join('')
+      : '<div class="sr">Sin resultados</div>';
+    box.style.display = 'block';
+  } catch (e) { toast('Error de búsqueda: ' + e.message, true); }
+}
+$('#search').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); if (e.key === 'Escape') $('#searchResults').style.display = 'none'; });
+document.addEventListener('click', e => { if (!e.target.closest('#searchWrap')) $('#searchResults').style.display = 'none'; });
+const nomBounds = r => { const [s, n, w, e] = r.boundingbox.map(Number); return [[s, w], [n, e]]; };
+
+/* =========================================================================
+   Exportación
+   ========================================================================= */
+function exportSet(scope) {
+  if (scope === 'visible') {
+    const m = new Map();
+    activeFeatures().filter(shouldShow).forEach(f => m.set(f.key, f));
+    Object.values(state.marked).forEach(f => m.set(f.key, f));
+    return [...m.values()];
+  }
+  return Object.values(state.marked);
+}
+const xml = esc;
+const kmlColor = (hex, a = 'ff') => a + hex.slice(5, 7) + hex.slice(3, 5) + hex.slice(1, 3);
+const argb = hex => (0xff000000 | parseInt(hex.slice(1), 16)) | 0;
+function describe(f) {
+  const [lat, lon] = featLatLng(f);
+  const rows = Object.entries(f.tags || {}).map(([k, v]) => `${k}: ${v}`);
+  const l = confLevel(f);
+  return [`Categoría: ${catName(f.cat)}`, ...(f.type ? [`Tipo: ${typeLabel(...f.type.split('='))} (${f.type})`] : []), ...(l ? [`Fiabilidad: ${CONF_TXT[l]}${f.q ? ` (${f.q.s}/100)` : ''}`] : []),
+    `MGRS: ${Coord.mgrs(lat, lon)}`, `Fuente: ${f.src || ''}`, ...rows].join('\n');
+}
+function toGeoJSON(feats, regions, withTags) {
+  const geo = g => g.type === 'Point' ? { type: 'Point', coordinates: [g.coords[1], g.coords[0]] }
+    : g.type === 'Polygon' ? { type: 'Polygon', coordinates: [[...g.coords, g.coords[0]].map(([a, b]) => [b, a])] }
+    : { type: 'LineString', coordinates: g.coords.map(([a, b]) => [b, a]) };
+  const out = feats.map(f => ({ type: 'Feature', id: f.key, geometry: geo(f.geom), properties: { name: f.name, category: f.cat, category_name: catName(f.cat), source: f.src, marked: isMarked(f.key), icon: iconFor(f), 'marker-color': featColor(f), osm_type: f.type || undefined, confidence: f.q ? f.q.s : undefined, confidence_level: confLevel(f) || undefined, mgrs: Coord.mgrs(...featLatLng(f)), ...(withTags ? f.tags : {}) } }));
+  regions.forEach(r => out.push({ type: 'Feature', id: 'region/' + r.id, geometry: geo({ type: 'Polygon', coords: regionPolygon(r) }), properties: { name: r.name, kind: 'region', color: r.color } }));
+  return JSON.stringify({ type: 'FeatureCollection', features: out }, null, 1);
+}
+function toKML(feats, regions, withTags, title) {
+  const cats = [...new Set(feats.map(f => f.cat))];
+  const coordStr = cs => cs.map(([a, b]) => `${b},${a},0`).join(' ');
+  const pm = f => {
+    const g = f.geom;
+    const geom = g.type === 'Point' ? `<Point><coordinates>${g.coords[1]},${g.coords[0]},0</coordinates></Point>`
+      : g.type === 'Polygon' ? `<Polygon><outerBoundaryIs><LinearRing><coordinates>${coordStr([...g.coords, g.coords[0]])}</coordinates></LinearRing></outerBoundaryIs></Polygon>`
+      : `<LineString><tessellate>1</tessellate><coordinates>${coordStr(g.coords)}</coordinates></LineString>`;
+    const ext = withTags ? `<ExtendedData>${Object.entries({ category: f.cat, source: f.src, key: f.key, ...(f.tags || {}) }).map(([k, v]) => `<Data name="${xml(k)}"><value>${xml(v)}</value></Data>`).join('')}</ExtendedData>` : '';
+    return `<Placemark><name>${xml(f.name || catName(f.cat))}</name>${withTags ? `<description>${xml(describe(f))}</description>` : ''}<styleUrl>#c-${f.cat}</styleUrl>${ext}${geom}</Placemark>`;
+  };
+  const styles = [...cats.map(c => `<Style id="c-${c}"><IconStyle><color>${kmlColor(catColor(c))}</color><scale>1</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle><LineStyle><color>${kmlColor(catColor(c))}</color><width>3</width></LineStyle><PolyStyle><color>${kmlColor(catColor(c), '40')}</color></PolyStyle></Style>`),
+    ...regions.map(r => `<Style id="r-${r.id}"><LineStyle><color>${kmlColor(r.color)}</color><width>2</width></LineStyle><PolyStyle><color>${kmlColor(r.color, '22')}</color></PolyStyle></Style>`)].join('\n');
+  const folders = cats.map(c => `<Folder><name>${xml(catName(c))}</name>${feats.filter(f => f.cat === c).map(pm).join('\n')}</Folder>`).join('\n');
+  const regs = regions.length ? `<Folder><name>Regiones</name>${regions.map(r => `<Placemark><name>${xml(r.name)}</name><styleUrl>#r-${r.id}</styleUrl><ExtendedData><Data name="kind"><value>region</value></Data></ExtendedData><Polygon><outerBoundaryIs><LinearRing><coordinates>${coordStr([...regionPolygon(r), regionPolygon(r)[0]])}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`).join('')}</Folder>` : '';
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document><name>${xml(title)}</name>\n${styles}\n${regs}\n${folders}\n</Document>\n</kml>`;
+}
+function toGPX(feats, withTags) {
+  const wpts = feats.filter(f => f.geom.type === 'Point').map(f => `<wpt lat="${f.geom.coords[0]}" lon="${f.geom.coords[1]}"><name>${xml(f.name || catName(f.cat))}</name>${withTags ? `<desc>${xml(describe(f))}</desc>` : ''}<type>${xml(catName(f.cat))}</type></wpt>`);
+  const trks = feats.filter(f => f.geom.type !== 'Point').map(f => `<trk><name>${xml(f.name || catName(f.cat))}</name><type>${xml(catName(f.cat))}</type><trkseg>${f.geom.coords.map(([a, b]) => `<trkpt lat="${a}" lon="${b}"/>`).join('')}</trkseg></trk>`);
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="OSINTMap" xmlns="http://www.topografix.com/GPX/1/1">\n${wpts.join('\n')}\n${trks.join('\n')}\n</gpx>`;
+}
+function toCSV(feats, withTags) {
+  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const head = ['name', 'category', 'latitude', 'longitude', 'mgrs', 'source', 'id', ...(withTags ? ['tags'] : [])];
+  return [head.join(','), ...feats.map(f => {
+    const [la, lo] = featLatLng(f);
+    return [q(f.name), q(catName(f.cat)), la.toFixed(7), lo.toFixed(7), q(Coord.mgrs(la, lo)), q(f.src), q(f.key), ...(withTags ? [q(JSON.stringify(f.tags || {}))] : [])].join(',');
+  })].join('\r\n');
+}
+function cotEvent(f, withTags, now, stale) {
+  const g = f.geom, color = argb(featColor(f)), uidv = 'osintmap-' + f.key.replace(/[^\w.-]/g, '-');
+  const remarks = withTags ? `<remarks>${xml(describe(f))}</remarks>` : '<remarks/>';
+  if (g.type === 'Point') {
+    return { uid: uidv, xml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<event version="2.0" uid="${xml(uidv)}" type="${xml(S.cotType)}" time="${now}" start="${now}" stale="${stale}" how="h-g-i-g-o">
+<point lat="${g.coords[0]}" lon="${g.coords[1]}" hae="9999999.0" ce="9999999.0" le="9999999.0"/>
+<detail><contact callsign="${xml(f.name || catName(f.cat))}"/>${remarks}<color argb="${color}"/>${S.cotType === 'b-m-p-s-m' ? `<usericon iconsetpath="COT_MAPPING_SPOTMAP/b-m-p-s-m/${color}"/>` : ''}<precisionlocation altsrc="???" geopointsrc="???"/><archive/></detail>
+</event>` };
+  }
+  const cs = g.type === 'Polygon' ? [...g.coords, g.coords[0]] : g.coords;
+  const fill = g.type === 'Polygon' ? `<fillColor value="${(0x33000000 | parseInt(featColor(f).slice(1), 16)) | 0}"/>` : '';
+  return { uid: uidv, xml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<event version="2.0" uid="${xml(uidv)}" type="u-d-f" time="${now}" start="${now}" stale="${stale}" how="h-e">
+<point lat="${cs[0][0]}" lon="${cs[0][1]}" hae="9999999.0" ce="9999999.0" le="9999999.0"/>
+<detail>${cs.map(([a, b]) => `<link point="${a},${b}"/>`).join('')}<contact callsign="${xml(f.name || catName(f.cat))}"/>${remarks}<strokeColor value="${color}"/><strokeWeight value="3.0"/>${fill}<labels_on value="true"/><archive/></detail>
+</event>` };
+}
+async function toDataPackage(feats, regions, withTags, title) {
+  const zip = new JSZip(), now = new Date(), stale = new Date(now.getTime() + S.staleDays * 864e5);
+  const iso = d => d.toISOString();
+  const all = [...feats, ...regions.map(r => ({ key: 'region/' + r.id, cat: 'region', name: r.name, src: 'region', tags: {}, geom: { type: 'Polygon', coords: regionPolygon(r) } }))];
+  CAT.region = CAT.region || { id: 'region', name: 'Región', color: '#38bdf8' };
+  const contents = [];
+  all.forEach(f => {
+    const ev = cotEvent(f, withTags, iso(now), iso(stale));
+    const path = `${ev.uid}/${ev.uid}.cot`;
+    zip.file(path, ev.xml);
+    contents.push(`<Content ignore="false" zipEntry="${xml(path)}"><Parameter name="uid" value="${xml(ev.uid)}"/></Content>`);
+  });
+  const pkgUid = uid();
+  zip.file('MANIFEST/manifest.xml', `<MissionPackageManifest version="2">
+<Configuration><Parameter name="uid" value="${pkgUid}"/><Parameter name="name" value="${xml(title)}"/><Parameter name="onReceiveDelete" value="false"/></Configuration>
+<Contents>
+${contents.join('\n')}
+</Contents>
+</MissionPackageManifest>`);
+  return zip.generateAsync({ type: 'blob', mimeType: 'application/zip' });
+}
+function openExport() {
+  $('#expCntMarked').textContent = Object.keys(state.marked).length;
+  $('#expCntVisible').textContent = exportSet('visible').length;
+  if (!Object.keys(state.marked).length && exportSet('visible').length) $('input[name=scope][value=visible]').checked = true;
+  $('#dlgExport').showModal();
+}
+async function doExport() {
+  const fmt = $('input[name=fmt]:checked').value, scope = $('input[name=scope]:checked').value;
+  const withTags = $('#expTags').checked, feats = exportSet(scope);
+  const regions = $('#expRegions').checked ? state.regions : [];
+  const name = ($('#expName').value.trim() || 'osint-export').replace(/[^\w.-]+/g, '_');
+  if (!feats.length && !regions.length) return toast('No hay nada que exportar', true);
+  try {
+    switch (fmt) {
+      case 'geojson': download(name + '.geojson', toGeoJSON(feats, regions, withTags), 'application/geo+json'); break;
+      case 'kml': download(name + '.kml', toKML(feats, regions, withTags, name), 'application/vnd.google-earth.kml+xml'); break;
+      case 'kmz': { const z = new JSZip(); z.file('doc.kml', toKML(feats, regions, withTags, name)); download(name + '.kmz', await z.generateAsync({ type: 'blob', mimeType: 'application/vnd.google-earth.kmz' })); break; }
+      case 'gpx': download(name + '.gpx', toGPX(feats, withTags), 'application/gpx+xml'); break;
+      case 'csv': download(name + '.csv', '﻿' + toCSV(feats, withTags), 'text/csv'); break;
+      case 'atak': download(name + '.zip', await toDataPackage(feats, regions, withTags, name)); break;
+    }
+    $('#dlgExport').close();
+    toast(`Exportados ${feats.length} elementos${regions.length ? ` y ${regions.length} regiones` : ''}`);
+  } catch (e) { toast('Error al exportar: ' + e.message, true); }
+}
+
+/* =========================================================================
+   Importación
+   ========================================================================= */
+function importedFeature(name, geom, tags = {}, cat) {
+  return { key: 'import/' + uid(), cat: CAT[cat] && cat !== 'region' ? cat : 'import', name: name || '', geom, tags, src: 'importado' };
+}
+function parseGeoJSON(txt) {
+  const j = JSON.parse(txt), out = [], regions = [];
+  const feats = j.type === 'FeatureCollection' ? j.features : j.type === 'Feature' ? [j] : [{ type: 'Feature', geometry: j, properties: {} }];
+  feats.forEach(ft => {
+    const p = { ...(ft.properties || {}) }, g = ft.geometry; if (!g) return;
+    const name = p.name || p.title || p.nombre || '';
+    const cat = p.category, icon = p.icon, color = p['marker-color'];
+    ['name', 'category', 'category_name', 'source', 'marked', 'mgrs', 'icon', 'marker-color', 'osm_type', 'confidence', 'confidence_level'].forEach(k => delete p[k]);
+    const sw = c => [c[1], c[0]];
+    const add = geom => { const f = importedFeature(name, geom, p, cat); if (icon) f.icon = icon; if (/^#[0-9a-f]{6}$/i.test(color || '')) f.color = color; out.push(f); };
+    switch (g.type) {
+      case 'Point': add({ type: 'Point', coords: sw(g.coordinates) }); break;
+      case 'MultiPoint': g.coordinates.forEach(c => add({ type: 'Point', coords: sw(c) })); break;
+      case 'LineString': add({ type: 'LineString', coords: g.coordinates.map(sw) }); break;
+      case 'MultiLineString': g.coordinates.forEach(l => add({ type: 'LineString', coords: l.map(sw) })); break;
+      case 'Polygon': {
+        const ring = g.coordinates[0].map(sw); ring.pop();
+        if (p.kind === 'region') regions.push({ name, color: p.color, coords: ring }); else add({ type: 'Polygon', coords: ring });
+        break;
+      }
+      case 'MultiPolygon': g.coordinates.forEach(pg => { const ring = pg[0].map(sw); ring.pop(); add({ type: 'Polygon', coords: ring }); }); break;
+    }
+  });
+  return { feats: out, regions };
+}
+function parseXML(txt) {
+  const d = new DOMParser().parseFromString(txt, 'application/xml');
+  if (d.getElementsByTagName('parsererror').length) throw new Error('XML inválido');
+  return d;
+}
+const tagsByLocal = (el, n) => [...el.getElementsByTagNameNS('*', n)];
+const firstText = (el, n) => (tagsByLocal(el, n)[0]?.textContent || '').trim();
+function parseKML(txt) {
+  const d = parseXML(txt), out = [], regions = [];
+  const parseCoords = s => s.trim().split(/\s+/).map(t => t.split(',').map(Number)).filter(c => c.length >= 2 && !isNaN(c[0])).map(c => [c[1], c[0]]);
+  tagsByLocal(d, 'Placemark').forEach(pm => {
+    const name = firstText(pm, 'name'), desc = firstText(pm, 'description');
+    const data = {}; tagsByLocal(pm, 'Data').forEach(x => data[x.getAttribute('name')] = firstText(x, 'value'));
+    const cat = data.category; delete data.category; delete data.source; delete data.key;
+    const tags = { ...data }; if (desc && !Object.keys(data).length) tags.description = desc;
+    tagsByLocal(pm, 'Point').forEach(p => { const c = parseCoords(firstText(p, 'coordinates')); if (c[0]) out.push(importedFeature(name, { type: 'Point', coords: c[0] }, tags, cat)); });
+    tagsByLocal(pm, 'LineString').forEach(p => { const c = parseCoords(firstText(p, 'coordinates')); if (c.length > 1) out.push(importedFeature(name, { type: 'LineString', coords: c }, tags, cat)); });
+    tagsByLocal(pm, 'Polygon').forEach(p => {
+      const ob = tagsByLocal(p, 'outerBoundaryIs')[0] || p;
+      const c = parseCoords(firstText(ob, 'coordinates')); if (c.length < 4) return; c.pop();
+      if (data.kind === 'region') regions.push({ name, coords: c }); else out.push(importedFeature(name, { type: 'Polygon', coords: c }, tags, cat));
+    });
+  });
+  return { feats: out, regions };
+}
+function parseGPX(txt) {
+  const d = parseXML(txt), out = [];
+  const pt = e => [+e.getAttribute('lat'), +e.getAttribute('lon')];
+  tagsByLocal(d, 'wpt').forEach(w => out.push(importedFeature(firstText(w, 'name'), { type: 'Point', coords: pt(w) }, { description: firstText(w, 'desc') })));
+  tagsByLocal(d, 'rte').forEach(r => { const c = tagsByLocal(r, 'rtept').map(pt); if (c.length > 1) out.push(importedFeature(firstText(r, 'name'), { type: 'LineString', coords: c })); });
+  tagsByLocal(d, 'trk').forEach(t => tagsByLocal(t, 'trkseg').forEach(sg => { const c = tagsByLocal(sg, 'trkpt').map(pt); if (c.length > 1) out.push(importedFeature(firstText(t, 'name'), { type: 'LineString', coords: c })); }));
+  return { feats: out, regions: [] };
+}
+function parseCoT(txt) {
+  const d = parseXML(txt), out = [];
+  tagsByLocal(d, 'event').forEach(ev => {
+    const p = tagsByLocal(ev, 'point')[0]; if (!p) return;
+    const name = tagsByLocal(ev, 'contact')[0]?.getAttribute('callsign') || ev.getAttribute('uid') || '';
+    const tags = { cot_type: ev.getAttribute('type') || '', cot_uid: ev.getAttribute('uid') || '', remarks: firstText(ev, 'remarks') };
+    const links = tagsByLocal(ev, 'link').map(l => l.getAttribute('point')).filter(Boolean).map(s => s.split(',').slice(0, 2).map(Number));
+    if (links.length > 1) {
+      const closed = links.length > 3 && links[0][0] === links[links.length - 1][0] && links[0][1] === links[links.length - 1][1];
+      out.push(importedFeature(name, closed ? { type: 'Polygon', coords: links.slice(0, -1) } : { type: 'LineString', coords: links }, tags));
+    } else out.push(importedFeature(name, { type: 'Point', coords: [+p.getAttribute('lat'), +p.getAttribute('lon')] }, tags));
+  });
+  return { feats: out, regions: [] };
+}
+function parseCSV(txt) {
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < txt.length; i++) {
+    const c = txt[i];
+    if (q) { if (c === '"') { if (txt[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ',' || c === ';' || c === '\t') { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && txt[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+    else cur += c;
+  }
+  if (cur || row.length) { row.push(cur); rows.push(row); }
+  const head = (rows.shift() || []).map(h => h.replace(/^﻿/, '').trim().toLowerCase());
+  const idx = names => head.findIndex(h => names.includes(h));
+  const iLat = idx(['lat', 'latitude', 'latitud', 'y']), iLon = idx(['lon', 'lng', 'long', 'longitude', 'longitud', 'x']);
+  const iName = idx(['name', 'nombre', 'title', 'titulo', 'título', 'callsign']), iMgrs = idx(['mgrs']);
+  if ((iLat < 0 || iLon < 0) && iMgrs < 0) throw new Error('El CSV necesita columnas lat/lon (o mgrs)');
+  const out = [];
+  rows.forEach(r => {
+    let lat = +String(r[iLat] ?? '').replace(',', '.'), lon = +String(r[iLon] ?? '').replace(',', '.');
+    if ((isNaN(lat) || isNaN(lon) || iLat < 0) && iMgrs >= 0) { const ll = Coord.parse(r[iMgrs] || ''); if (ll) { lat = ll.lat; lon = ll.lon; } }
+    if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0 && !r[iLat])) return;
+    const tags = {}; head.forEach((h, i) => { if (![iLat, iLon, iName].includes(i) && r[i]) tags[h] = r[i]; });
+    out.push(importedFeature(iName >= 0 ? r[iName] : '', { type: 'Point', coords: [lat, lon] }, tags));
+  });
+  return { feats: out, regions: [] };
+}
+async function parseFile(name, content) {
+  const ext = name.toLowerCase().split('.').pop();
+  if (ext === 'zip' || ext === 'kmz') {
+    const z = await JSZip.loadAsync(content), res = { feats: [], regions: [] };
+    for (const [p, entry] of Object.entries(z.files)) {
+      if (entry.dir || /manifest/i.test(p)) continue;
+      if (!/\.(kml|cot|xml|geojson|json|gpx|csv)$/i.test(p)) continue;
+      try { const r = await parseFile(p, await entry.async('string')); res.feats.push(...r.feats); res.regions.push(...r.regions); } catch (e) { console.warn('No se pudo leer', p, e); }
+    }
+    return res;
+  }
+  const txt = typeof content === 'string' ? content : new TextDecoder().decode(content);
+  if (ext === 'geojson' || ext === 'json') return parseGeoJSON(txt);
+  if (ext === 'kml') return parseKML(txt);
+  if (ext === 'gpx') return parseGPX(txt);
+  if (ext === 'csv') return parseCSV(txt);
+  if (ext === 'cot' || ext === 'xml') {
+    if (/<kml/i.test(txt)) return parseKML(txt);
+    if (/<gpx/i.test(txt)) return parseGPX(txt);
+    return parseCoT(txt);
+  }
+  throw new Error('Formato no soportado: ' + ext);
+}
+async function importFiles(files) {
+  let nf = 0, nr = 0; const bounds = L.latLngBounds([]);
+  History.push(`importar ${files.length} archivo(s)`);
+  for (const file of files) {
+    try {
+      const buf = await file.arrayBuffer();
+      const { feats, regions } = await parseFile(file.name, buf);
+      feats.forEach(f => {
+        f.tags = Object.fromEntries(Object.entries(f.tags || {}).filter(([, v]) => v !== '' && v != null));
+        f.tags.import_file = file.name;
+        state.custom[f.key] = f; state.marked[f.key] = f; nf++;
+        (f.geom.type === 'Point' ? [f.geom.coords] : f.geom.coords).forEach(c => bounds.extend(c));
+      });
+      regions.forEach(r => {
+        state.regions.push({ id: uid(), name: r.name || 'Región importada', color: r.color || REGION_COLORS[state.regions.length % REGION_COLORS.length], geom: { type: 'poly', coords: r.coords } });
+        r.coords.forEach(c => bounds.extend(c)); nr++;
+      });
+    } catch (e) { toast(`${file.name}: ${e.message}`, true, 6000); }
+  }
+  save(); renderRegions(); renderFeatures(); updateLists();
+  if (nf || nr) { toast(`Importados ${nf} elementos${nr ? ` y ${nr} regiones` : ''}`); if (bounds.isValid()) flyToBounds(bounds); showTab('marked'); }
+}
+$('#fileImport').addEventListener('change', e => { importFiles([...e.target.files]); e.target.value = ''; });
+$('#map').addEventListener('dragover', e => e.preventDefault());
+$('#map').addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files.length) importFiles([...e.dataTransfer.files]); });
+
+/* =========================================================================
+   Retícula
+   ========================================================================= */
+function gridLabel(ll, text, anchor) {
+  return L.marker(ll, { interactive: false, pane: 'grid', icon: L.divIcon({ className: '', html: `<div class="grid-label">${esc(text)}</div>`, iconAnchor: anchor, iconSize: null }) });
+}
+function drawGrid() {
+  gridLayer.clearLayers();
+  if (S.grid === 'none') return;
+  const b = map.getBounds().pad(0.05), z = map.getZoom();
+  const S_ = Math.max(b.getSouth(), -85), N_ = Math.min(b.getNorth(), 85), W = b.getWest(), E = b.getEast();
+  const st = { color: '#fff', weight: 1, opacity: .45, interactive: false, pane: 'grid' };
+  if (S.grid === 'latlon') {
+    const steps = [30, 20, 10, 5, 2, 1, .5, .25, .1, .05, .025, .01, .005, .0025, .001, .0005];
+    const span = Math.max(N_ - S_, (E - W) / 2);
+    const step = steps.find(s => span / s >= 4) || .0005;
+    const fmt = (v, pos, neg) => S.coordFormat === 'dms' || S.coordFormat === 'ddm' ? Coord.dms(v, pos, neg, S.coordFormat === 'ddm') : v.toFixed(Math.max(0, -Math.floor(Math.log10(step)) + 1)) + '°';
+    for (let la = Math.ceil(S_ / step) * step; la <= N_; la += step) {
+      L.polyline([[la, W], [la, E]], st).addTo(gridLayer);
+      gridLabel([la, map.getBounds().getWest()], fmt(la, 'N', 'S'), [-4, 14]).addTo(gridLayer);
+    }
+    for (let lo = Math.ceil(W / step) * step; lo <= E; lo += step) {
+      L.polyline([[S_, lo], [N_, lo]], st).addTo(gridLayer);
+      gridLabel([map.getBounds().getSouth(), lo], fmt(lo, 'E', 'W'), [-4, 16]).addTo(gridLayer);
+    }
+    return;
+  }
+  // UTM: zonas y bandas
+  const zs = { ...st, color: '#fbbf24', opacity: .7, weight: 1.5 };
+  for (let lo = Math.ceil(W / 6) * 6; lo <= E; lo += 6) L.polyline([[Math.max(S_, -80), lo], [Math.min(N_, 84), lo]], zs).addTo(gridLayer);
+  for (let la = -80; la <= 84; la += 8) if (la >= S_ && la <= N_) L.polyline([[la, W], [la, E]], zs).addTo(gridLayer);
+  if (z <= 9) {
+    for (let lo = Math.floor(W / 6) * 6; lo < E; lo += 6) for (let la = -80; la < 84; la += 8) {
+      const cla = Math.min(la + 4, 83), clo = lo + 3;
+      if (cla < S_ || cla > N_ || clo < W || clo > E) continue;
+      gridLabel([cla, clo], `${UTM.zoneOf(cla, clo)}${UTM.letter(cla)}`, [10, 8]).addTo(gridLayer);
+    }
+  }
+  if (z < 8) return;
+  // Cuadrícula UTM métrica en la zona del centro
+  const c = map.getCenter(); if (c.lat > 84 || c.lat < -80) return;
+  const zone = UTM.zoneOf(c.lat, c.lng), south = c.lat < 0;
+  const spacing = z >= 16 ? 100 : z >= 13 ? 1000 : z >= 10 ? 10000 : 100000;
+  const corners = [[S_, W], [S_, E], [N_, W], [N_, E], [c.lat, W], [c.lat, E]].map(([a, o]) => UTM.fromLL(a, o, zone));
+  const emin = Math.floor(Math.min(...corners.map(u => u.easting)) / spacing) * spacing, emax = Math.max(...corners.map(u => u.easting));
+  const nmin = Math.floor(Math.min(...corners.map(u => u.northing)) / spacing) * spacing, nmax = Math.max(...corners.map(u => u.northing));
+  if ((emax - emin) / spacing > 60 || (nmax - nmin) / spacing > 60) return;
+  const ll = (e, n) => { const p = UTM.toLL(zone, e, n, south); return [p.lat, p.lon]; };
+  const lz = { ...st, opacity: .4 }, SEG = 12;
+  const lab = v => spacing >= 1000 ? `${Math.floor(v / 1000) % 100}` : `${Math.floor(v / 100) % 1000}`;
+  for (let e = emin; e <= emax; e += spacing) {
+    const pts = []; for (let i = 0; i <= SEG; i++) pts.push(ll(e, nmin + (nmax - nmin) * i / SEG));
+    L.polyline(pts, lz).addTo(gridLayer);
+    gridLabel(ll(e, Math.max(nmin, UTM.fromLL(map.getBounds().getSouth(), c.lng, zone).northing)), lab(e), [-3, 16]).addTo(gridLayer);
+  }
+  for (let n = nmin; n <= nmax; n += spacing) {
+    const pts = []; for (let i = 0; i <= SEG; i++) pts.push(ll(emin + (emax - emin) * i / SEG, n));
+    L.polyline(pts, lz).addTo(gridLayer);
+    gridLabel(ll(Math.max(emin, UTM.fromLL(c.lat, map.getBounds().getWest(), zone).easting), n), lab(n), [-4, 14]).addTo(gridLayer);
+  }
+}
+map.on('moveend zoomend', drawGrid);
+
+/* =========================================================================
+   Configuración
+   ========================================================================= */
+const SET_FIELDS = [
+  ['#setCoordFormat', 'coordFormat'], ['#setDatum', 'datum'], ['#setDDPrec', 'ddPrec', Number], ['#setMgrsPrec', 'mgrsPrec', Number],
+  ['#setUnits', 'units'], ['#setGrid', 'grid'], ['#setScale', 'showScale', 'bool'], ['#setCursor', 'showCursor', 'bool'],
+  ['#setFly', 'fly', 'bool'], ['#setInertia', 'inertia', 'bool'], ['#setWheel', 'wheel', 'bool'], ['#setWheelPx', 'wheelPx', Number],
+  ['#setTheme', 'theme'], ['#setOverpass', 'overpass'], ['#setMax', 'maxResults', Number], ['#setTimeout', 'timeout', Number],
+  ['#setMaxArea', 'maxArea', Number], ['#setWikiLang', 'wikiLang'], ['#setAutoLoad', 'autoLoad', 'bool'],
+  ['#setCotType', 'cotType'], ['#setStale', 'staleDays', Number], ['#setIconZoom', 'iconZoom', Number],
+];
+function openSettings() {
+  SET_FIELDS.forEach(([sel, k, t]) => { const el = $(sel); if (t === 'bool') el.checked = !!S[k]; else el.value = S[k]; });
+  $('#setHomeLat').value = S.home.lat; $('#setHomeLon').value = S.home.lon; $('#setHomeZoom').value = S.home.zoom;
+  $('#dlgSettings').showModal();
+}
+function saveSettings() {
+  SET_FIELDS.forEach(([sel, k, t]) => { const el = $(sel); S[k] = t === 'bool' ? el.checked : t ? t(el.value) : el.value; });
+  S.ddPrec = Math.min(9, Math.max(0, S.ddPrec || 6));
+  S.home = { lat: +$('#setHomeLat').value || 0, lon: +$('#setHomeLon').value || 0, zoom: +$('#setHomeZoom').value || 3 };
+  save(); applySettings(); $('#dlgSettings').close(); toast('Configuración guardada');
+}
+function applySettings() {
+  const theme = S.theme === 'auto' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : S.theme;
+  document.documentElement.dataset.theme = theme;
+  if (scaleCtl) { scaleCtl.remove(); scaleCtl = null; }
+  if (S.showScale) scaleCtl = L.control.scale({ position: 'bottomleft', metric: S.units !== 'imperial', imperial: S.units === 'imperial', maxWidth: 160 }).addTo(map);
+  map.options.inertia = S.inertia;
+  map.options.wheelPxPerZoomLevel = S.wheelPx;
+  S.wheel ? map.scrollWheelZoom.enable() : map.scrollWheelZoom.disable();
+  $('#stCursor').style.display = S.showCursor ? '' : 'none';
+  $('#stDatum').textContent = S.datum + ' · ' + { dd: 'DD', dms: 'DMS', ddm: 'DDM', utm: 'UTM', mgrs: 'MGRS' }[S.coordFormat];
+  drawGrid(); renderRegions(); renderFeatures(); updateLists();
+}
+matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', () => S.theme === 'auto' && applySettings());
+
+/* =========================================================================
+   Barra de estado
+   ========================================================================= */
+let lastCursor = null;
+map.on('mousemove', e => {
+  lastCursor = e.latlng;
+  if (S.showCursor) $('#stCursor').textContent = Coord.format(e.latlng.lat, e.latlng.lng);
+  if (Draw.mode && Draw.pts.length) Draw.preview(e.latlng);
+});
+map.on('zoomend moveend', () => {
+  const c = map.getCenter();
+  $('#stZoom').textContent = `z ${map.getZoom()} · centro ${Coord.format(c.lat, c.lng, 'dd').replace(/(\.\d{4})\d+/g, '$1')}`;
+});
+$('#stCursor').addEventListener('click', () => lastCursor && copyText(Coord.format(lastCursor.lat, lastCursor.lng)));
+
+/* =========================================================================
+   Acciones (delegación de eventos)
+   ========================================================================= */
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  const act = el.dataset.act, key = el.dataset.key, id = el.dataset.id;
+  switch (act) {
+    case 'toggle-sidebar': $('#sidebar').classList.toggle('open'); break;
+    case 'tool': Draw.tool === el.dataset.tool ? Draw.cancel() : Draw.start(el.dataset.tool); break;
+    case 'draw-finish': Draw.complete(); break;
+    case 'draw-cancel': Draw.cancel(); break;
+    case 'region-view': regionFromView(); break;
+    case 'region-around': map.closePopup(); createRegion({ type: 'circle', center: [+el.dataset.lat, +el.dataset.lon], radius: 1000 }); break;
+    case 'region-activate': setActiveRegion(id); break;
+    case 'region-load': loadRegion(id); break;
+    case 'load-active': loadRegion(state.activeRegion); break;
+    case 'region-rename': { const r = state.regions.find(x => x.id === id); const n = r && prompt('Nuevo nombre:', r.name); if (n) { History.push(`renombrar región «${r.name}»`); r.name = n; save(); renderRegions(); } break; }
+    case 'region-delete': deleteRegion(id); break;
+    case 'abort-load': loadCtl?.abort(); break;
+    case 'mark': toggleMark(key); break;
+    case 'discard': discardFeatures([key]); break;
+    case 'verify': {
+      const f = featureByKey(key); const on = !state.verified[key];
+      History.push(`${on ? 'confirmar' : 'quitar confirmación de'} «${f?.name || 'elemento'}»`);
+      if (on) state.verified[key] = new Date().toISOString(); else delete state.verified[key];
+      save(); refreshFeature(key); updateLists(); break;
+    }
+    case 'cat-expand': expandedCat = expandedCat === id ? null : id; renderCats(); break;
+    case 'types-all': case 'types-none': {
+      History.push(`${act === 'types-all' ? 'todos los' : 'ningún'} tipo de «${catName(id)}»`);
+      if (act === 'types-all') delete state.catTypes[id]; else state.catTypes[id] = [];
+      afterTypesChange(id, act === 'types-all'); break;
+    }
+    case 'ccat-new': openCatDialog(); break;
+    case 'ccat-edit': openCatDialog(id); break;
+    case 'ccat-test': testCatFilter(); break;
+    case 'ccat-save': saveCatDialog(); break;
+    case 'ccat-delete': deleteCustomCat(); break;
+    case 'cat-add-point': map.closePopup(); addCustomPoint([+el.dataset.lat, +el.dataset.lon], el.dataset.name, JSON.parse(el.dataset.tags || '{}')); break;
+    case 'restore-discarded': { History.push('recuperar descartados'); const n = restoreDiscarded(); save(); renderCats(); renderFeatures(); updateLists(); toast(`${n} elemento(s) recuperado(s)`); break; }
+    case 'undo': History.doUndo(); break;
+    case 'redo': History.doRedo(); break;
+    case 'icon-edit': openIconDialog(key); break;
+    case 'icon-pick': iconSel = el.dataset.icon; renderIconGrid(); break;
+    case 'icon-apply': applyIcon(false); break;
+    case 'icon-reset': applyIcon(true); break;
+    case 'zoom-feature': {
+      const f = featureByKey(key); if (!f) break;
+      if (f.geom.type === 'Point') flyTo(f.geom.coords, Math.max(map.getZoom(), 17)); else flyToBounds(L.latLngBounds(f.geom.coords));
+      setTimeout(() => openFeaturePopup(key), S.fly ? 1300 : 50);
+      if (innerWidth <= 860) $('#sidebar').classList.remove('open');
+      break;
+    }
+    case 'copy': copyText(el.dataset.text); break;
+    case 'rename': { const f = state.custom[key]; const n = f && prompt('Nuevo nombre:', f.name); if (n) { History.push(`renombrar «${f.name}»`); f.name = n; if (state.marked[key]) state.marked[key] = f; save(); refreshFeature(key); updateLists(); } break; }
+    case 'delete-custom': History.push(`eliminar «${state.custom[key]?.name || 'marcador'}»`); delete state.custom[key]; delete state.marked[key]; map.closePopup(); save(); refreshFeature(key); updateLists(); break;
+    case 'add-point-at': map.closePopup(); addCustomPoint([+el.dataset.lat, +el.dataset.lon]); break;
+    case 'mark-filtered': bulkMark(filteredResults().map(f => f.key), true); break;
+    case 'unmark-filtered': bulkMark(filteredResults().map(f => f.key), false); break;
+    case 'clear-marked': if (confirm('¿Desmarcar todos los elementos? Los marcadores propios e importados se eliminarán.')) { History.push('desmarcar todo'); state.marked = {}; state.custom = {}; save(); renderFeatures(); updateLists(); } break;
+    case 'zoom-marked': {
+      const b = L.latLngBounds([]); Object.values(state.marked).forEach(f => (f.geom.type === 'Point' ? [f.geom.coords] : f.geom.coords).forEach(c => b.extend(c)));
+      if (b.isValid()) flyToBounds(b); break;
+    }
+    case 'cats-all': History.push('cambiar categorías'); state.selCats = [...CATS.map(c => c.id), 'wiki']; state.hiddenCats = []; restoreDiscarded(); save(); renderCats(); renderFeatures(); updateLists(); loadMissingCats(); break;
+    case 'cats-none': History.push('cambiar categorías'); state.selCats = []; state.hiddenCats = [...CATS.map(c => c.id), 'wiki']; save(); renderCats(); renderFeatures(); updateLists(); break;
+    case 'cats-default': History.push('cambiar categorías'); state.selCats = [...DEFAULT_CATS]; state.hiddenCats = [...CATS.map(c => c.id), 'wiki'].filter(x => !state.selCats.includes(x)); save(); renderCats(); renderFeatures(); updateLists(); loadMissingCats(); break;
+    case 'locate':
+      if (!navigator.geolocation) { toast('Geolocalización no disponible', true); break; }
+      navigator.geolocation.getCurrentPosition(p => showTarget(p.coords.latitude, p.coords.longitude, `Mi posición (±${Math.round(p.coords.accuracy)} m)`), err => toast('No se pudo obtener la ubicación: ' + err.message, true), { enableHighAccuracy: true, timeout: 15000 });
+      break;
+    case 'search-go': { const r = searchResults[+el.dataset.i]; $('#searchResults').style.display = 'none'; flyToBounds(L.latLngBounds(nomBounds(r))); showTarget(+r.lat, +r.lon, r.display_name); break; }
+    case 'search-region': { const r = searchResults[+el.dataset.i]; $('#searchResults').style.display = 'none'; flyToBounds(L.latLngBounds(nomBounds(r))); createRegion({ type: 'rect', bounds: nomBounds(r) }, r.name || r.display_name.split(',')[0]); break; }
+    case 'import': $('#fileImport').click(); break;
+    case 'export': openExport(); break;
+    case 'do-export': doExport(); break;
+    case 'settings': openSettings(); break;
+    case 'save-settings': saveSettings(); break;
+    case 'reset-settings': if (confirm('¿Restablecer la configuración por defecto?')) { S = structuredClone(DEFAULT_SETTINGS); openSettings(); save(); applySettings(); } break;
+    case 'home-from-view': { const c = map.getCenter(); $('#setHomeLat').value = c.lat.toFixed(5); $('#setHomeLon').value = c.lng.toFixed(5); $('#setHomeZoom').value = Math.round(map.getZoom()); break; }
+    case 'close-dialog': el.closest('dialog').close(); break;
+  }
+});
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (el.dataset.act === 'cat-toggle') {
+    const id = el.dataset.id;
+    History.push(`${el.checked ? 'activar' : 'desactivar'} «${catName(id)}»`);
+    if (el.checked) { const n = restoreDiscarded(id); if (n) toast(`${n} elemento(s) descartado(s) de «${catName(id)}» recuperado(s)`); }
+    state.selCats = el.checked ? [...new Set([...state.selCats, id])] : state.selCats.filter(x => x !== id);
+    state.hiddenCats = el.checked ? state.hiddenCats.filter(x => x !== id) : [...new Set([...state.hiddenCats, id])];
+    save(); renderCats(); renderFeatures(); updateLists();
+    if (el.checked) loadMissingCats();
+  }
+  if (el.dataset.act === 'type-toggle') {
+    const cat = el.dataset.cat, c = CAT[cat], t = el.dataset.type;
+    History.push(`${el.checked ? 'añadir' : 'quitar'} tipo en «${catName(cat)}»`);
+    let sel = state.catTypes[cat] ? [...state.catTypes[cat]] : c.types.map(x => x.id);
+    sel = el.checked ? [...new Set([...sel, t])] : sel.filter(x => x !== t);
+    if (sel.length === c.types.length) delete state.catTypes[cat]; else state.catTypes[cat] = sel;
+    afterTypesChange(cat, el.checked);
+  }
+  if (el.id === 'optHideClosed') { History.push('filtro de cerrados'); state.hideClosed = el.checked; save(); renderFeatures(); updateLists(); }
+  if (el.id === 'optMinConf') { History.push('filtro de fiabilidad'); state.minConf = el.value; save(); renderFeatures(); updateLists(); }
+  if (el.id === 'resSort') updateLists();
+  if (el.id === 'optShowMarkedOnly') { state.showMarkedOnly = el.checked; save(); renderFeatures(); }
+  if (el.id === 'optShowRegions') { state.showRegions = el.checked; save(); renderRegions(); }
+  if (el.id === 'resCat') updateLists();
+});
+$('#resFilter').addEventListener('input', () => updateLists());
+$('#mkFilter').addEventListener('input', () => updateLists());
+$$('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input, textarea, select')) return;
+  if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); return History.doUndo(); }
+    if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); return History.doRedo(); }
+  }
+  if (e.key === 'Escape' && Draw.mode) Draw.cancel();
+  if (e.key === 'Enter' && Draw.mode) Draw.complete();
+});
+
+/* =========================================================================
+   Tipos dentro de categorías y categorías personalizadas
+   ========================================================================= */
+function afterTypesChange(cat, widened) {
+  compileCat(CAT[cat]);
+  if (!state.selCats.includes(cat) && widened) state.selCats.push(cat), state.hiddenCats = state.hiddenCats.filter(x => x !== cat);
+  const done = regionLoadedTypes[state.activeRegion]?.[cat];
+  if (widened && done && selTypeIds(CAT[cat]).every(t => done.has(t))) widened = false; // ya estaban descargados
+  if (widened) regionLoadedCats[state.activeRegion]?.delete(cat); // hay que descargar los tipos añadidos
+  save(); renderCats(); renderFeatures(); updateLists();
+  if (widened) loadMissingCats();
+}
+let editingCat = null;
+function openCatDialog(id) {
+  editingCat = id || null;
+  const cc = id ? state.customCats.find(x => x.id === id) : null;
+  $('#ccIcon').innerHTML = ICON_CHOICES.map(n => `<option value="${n}">${n}</option>`).join('');
+  $('#ccName').value = cc?.name || ''; $('#ccFilter').value = cc?.filter || '';
+  $('#ccColor').value = cc?.color || '#e11d48'; $('#ccIcon').value = cc?.icon || 'star'; $('#ccLine').value = cc?.line ? '1' : '0';
+  $('#ccDelete').style.display = id ? '' : 'none';
+  $('#ccPreview').hidden = true;
+  $('#dlgCat').showModal();
+}
+function testCatFilter() {
+  const pre = $('#ccPreview'); pre.hidden = false;
+  try {
+    const alts = parseFilterText($('#ccFilter').value);
+    const geo = $('#ccLine').value === '1' ? 'way' : 'nwr';
+    pre.textContent = '✔ Filtro válido. Consulta Overpass generada:\n' + alts.map(a => `${geo}${a.map(condQL).join('')}(área);`).join('\n');
+    pre.style.color = '';
+    return alts;
+  } catch (e) { pre.textContent = '✖ ' + e.message; pre.style.color = 'var(--danger)'; return null; }
+}
+function saveCatDialog() {
+  const name = $('#ccName').value.trim(); if (!name) return toast('Ponle un nombre', true);
+  if (!testCatFilter()) return;
+  History.push(`${editingCat ? 'editar' : 'crear'} categoría «${name}»`);
+  const data = { name, filter: $('#ccFilter').value.trim(), color: $('#ccColor').value, icon: $('#ccIcon').value, line: $('#ccLine').value === '1' };
+  let id = editingCat;
+  if (id) Object.assign(state.customCats.find(x => x.id === id), data);
+  else { id = 'cc_' + uid().slice(0, 8); state.customCats.push({ id, ...data }); }
+  delete state.catTypes[id];
+  syncCustomCats();
+  if (!state.selCats.includes(id)) state.selCats.push(id);
+  state.hiddenCats = state.hiddenCats.filter(x => x !== id);
+  regionLoadedCats[state.activeRegion]?.delete(id);
+  if (state.activeRegion && regionData[state.activeRegion]) regionData[state.activeRegion] = regionData[state.activeRegion].filter(f => f.cat !== id);
+  $('#dlgCat').close(); save(); renderCats(); renderFeatures(); updateLists();
+  if (state.activeRegion && regionData[state.activeRegion]) loadMissingCats(); else toast('Categoría creada. Carga una región para ver sus elementos.');
+}
+function deleteCustomCat() {
+  const cc = state.customCats.find(x => x.id === editingCat); if (!cc || !confirm(`¿Eliminar la categoría «${cc.name}»?`)) return;
+  History.push(`eliminar categoría «${cc.name}»`);
+  state.customCats = state.customCats.filter(x => x.id !== cc.id);
+  state.selCats = state.selCats.filter(x => x !== cc.id);
+  Object.keys(regionData).forEach(r => regionData[r] = regionData[r].filter(f => f.cat !== cc.id));
+  syncCustomCats(); $('#dlgCat').close(); save(); renderCats(); renderFeatures(); updateLists();
+}
+
+/* =========================================================================
+   Catastro (España): información de la parcela al hacer clic
+   ========================================================================= */
+function findKey(o, key) {
+  if (!o || typeof o !== 'object') return undefined;
+  if (key in o) return o[key];
+  for (const v of Object.values(o)) { const r = findKey(v, key); if (r !== undefined) return r; }
+  return undefined;
+}
+async function catastroInfo(ll) {
+  const { lat, lng } = ll, d = 0.00015;
+  const popup = L.popup({ maxWidth: 360 }).setLatLng(ll).setContent('<div class="pop"><h4>Catastro</h4><div class="hint">Consultando la parcela…</div></div>').openOn(map);
+  const OVC = 'https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/';
+  const gfi = `https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo&LAYERS=Catastro&QUERY_LAYERS=Catastro&STYLES=&SRS=EPSG:4326&BBOX=${lng - d},${lat - d},${lng + d},${lat + d}&WIDTH=101&HEIGHT=101&X=50&Y=50&INFO_FORMAT=text/html`;
+  const links = rc => `<div class="links">${rc ? `<a href="https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=${rc.slice(0, 7)}&rc2=${rc.slice(7, 14)}" target="_blank" rel="noopener">Ficha en la Sede del Catastro</a><a href="https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?refcat=${rc.slice(0, 14)}" target="_blank" rel="noopener">Cartografía</a>` : ''}<a href="${gfi}" target="_blank" rel="noopener">Info WMS</a></div>`;
+  try {
+    const j1 = await (await fetch(`${OVC}COVCCoordenadas.svc/json/Consulta_RCCOOR?CoorX=${lng}&CoorY=${lat}&SRS=EPSG:4326`)).json();
+    let coord = findKey(j1, 'coord'); if (Array.isArray(coord)) coord = coord[0];
+    if (!coord || !coord.pc) throw new Error(findKey(j1, 'des') || 'No hay parcela catastral en este punto');
+    const rc = coord.pc.pc1 + coord.pc.pc2, dir = coord.ldt || '';
+    let uso = '', sfc = '', ant = '', n = '';
+    try {
+      const j2 = await (await fetch(`${OVC}COVCCallejero.svc/json/Consulta_DNPRC?RefCat=${rc}`)).json();
+      uso = findKey(j2, 'luso') || ''; sfc = findKey(j2, 'sfc') || ''; ant = findKey(j2, 'ant') || '';
+      const cnt = findKey(j2, 'cudnp'); if (cnt > 1) n = `${cnt} inmuebles en la parcela`;
+    } catch (e) { /* detalle opcional */ }
+    const tags = { ref_catastral: rc, direccion: dir, uso, superficie_m2: sfc, año_construccion: ant, fuente: 'Catastro' };
+    popup.setContent(`<div class="pop"><h4>Parcela catastral</h4>
+      <table><tr><td>Ref. catastral</td><td><b>${esc(rc)}</b></td></tr>${dir ? `<tr><td>Dirección</td><td>${esc(dir)}</td></tr>` : ''}${uso ? `<tr><td>Uso</td><td>${esc(uso)}</td></tr>` : ''}
+      ${sfc ? `<tr><td>Superficie</td><td>${esc(sfc)} m²</td></tr>` : ''}${ant ? `<tr><td>Año construcción</td><td>${esc(ant)}</td></tr>` : ''}${n ? `<tr><td>Inmuebles</td><td>${esc(n)}</td></tr>` : ''}</table>
+      ${coordsBlock(lat, lng)}${links(rc)}
+      <div class="acts"><button class="btn sm primary" data-act="cat-add-point" data-lat="${lat}" data-lon="${lng}" data-name="${esc(dir || rc)}" data-tags="${esc(JSON.stringify(tags))}">📍 Guardar como marcador</button>
+      <button class="btn sm" data-act="copy" data-text="${esc(rc)}">Copiar ref.</button></div></div>`);
+  } catch (e) {
+    // Si el navegador bloquea la consulta directa (CORS), se muestra la ficha WMS del propio Catastro
+    popup.setContent(`<div class="pop"><h4>Catastro</h4><div class="hint">${esc(e.message && !/fetch/i.test(e.message) ? e.message : 'Consulta directa no disponible; ficha del servicio WMS:')}</div>
+      <iframe src="${gfi}" loading="lazy" referrerpolicy="no-referrer"></iframe>${links('')}</div>`);
+  }
+}
+
+/* =========================================================================
+   Selector de iconos
+   ========================================================================= */
+let iconKey = null, iconSel = null;
+function openIconDialog(key) {
+  const f = featureByKey(key); if (!f) return;
+  iconKey = key; iconSel = iconFor(f);
+  $('#iconFor').textContent = f.name || catName(f.cat);
+  $('#iconCatName').textContent = `«${catName(f.cat)}»`;
+  $('#iconColor').value = featColor(f);
+  $('#iconAllCat').checked = false;
+  $('#iconSearch').value = '';
+  renderIconGrid();
+  $('#dlgIcon').showModal();
+}
+function renderIconGrid() {
+  const q = $('#iconSearch').value.trim().toLowerCase();
+  const list = ICON_CHOICES.includes(iconSel) ? ICON_CHOICES : [iconSel, ...ICON_CHOICES];
+  $('#iconGrid').innerHTML = list.filter(n => !q || n.includes(q)).map(n =>
+    `<button class="${n === iconSel ? 'sel' : ''}" data-act="icon-pick" data-icon="${n}" title="${n}"><i class="${iconClass(n)}"></i></button>`).join('');
+  $('#iconPreview').innerHTML = `<div class="pin" style="--c:${$('#iconColor').value}"><i class="${iconClass(iconSel)}"></i></div>`;
+}
+$('#iconSearch').addEventListener('input', renderIconGrid);
+$('#iconColor').addEventListener('input', renderIconGrid);
+function applyIcon(reset) {
+  const f = featureByKey(iconKey); if (!f) return;
+  const all = $('#iconAllCat').checked;
+  History.push(`${reset ? 'restablecer' : 'cambiar'} icono de ${all ? '«' + catName(f.cat) + '»' : '«' + (f.name || 'elemento') + '»'}`);
+  if (all) {
+    if (reset) delete state.catIcons[f.cat]; else state.catIcons[f.cat] = { icon: iconSel, color: $('#iconColor').value };
+    delete state.iconOverrides[iconKey];
+  } else if (reset) delete state.iconOverrides[iconKey];
+  else state.iconOverrides[iconKey] = { icon: iconSel, color: $('#iconColor').value };
+  save(); $('#dlgIcon').close(); renderCats(); renderFeatures(); updateLists();
+}
+
+/* =========================================================================
+   Inicio
+   ========================================================================= */
+renderCats();
+applySettings();
+renderRegions();
+renderFeatures();
+updateLists();
+showTab(state.tab || 'regions');
+History.buttons();
+map.fire('moveend');
+if (S.autoLoad && state.regions.some(r => r.id === state.activeRegion)) loadRegion(state.activeRegion);
+</script>
+</body>
+</html>
